@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"fortio.org/log" // Using fortio log (Removed explicit name)
+	"fortio.org/log" // Using fortio log
 	"github.com/google/go-github/v62/github"
 )
 
@@ -35,7 +35,7 @@ func initCache() (string, error) {
 	}
 	cacheDir := filepath.Join(userCacheDir, "depgraph_cache")
 	log.LogVf("Using cache directory: %s", cacheDir) // Verbose log
-	return cacheDir, os.MkdirAll(cacheDir, 0755)
+	return cacheDir, os.MkdirAll(cacheDir, 0o755)
 }
 
 // clearCache removes the cache directory
@@ -99,7 +99,7 @@ func writeCache(key string, data interface{}, useCache bool) error {
 		return fmt.Errorf("failed to marshal data for cache key %s: %w", key, err)
 	}
 
-	err = os.WriteFile(key, jsonData, 0644)
+	err = os.WriteFile(key, jsonData, 0o644)
 	if err != nil {
 		// Log write errors clearly
 		log.Errf("Error writing cache file %s: %v", key, err)

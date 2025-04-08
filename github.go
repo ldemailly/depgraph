@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"fortio.org/log" // Using fortio log (Removed explicit name)
+	"fortio.org/log" // Using fortio log
 	"github.com/google/go-github/v62/github"
 )
 

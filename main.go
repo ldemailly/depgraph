@@ -154,22 +154,26 @@ func main() {
 					parentOwner := parent.GetOwner().GetLogin()
 					parentRepo := parent.GetName()
 					parentRepoPath := fmt.Sprintf("%s/%s", parentOwner, parentRepo)
+					log.LogVf("        Fork detected. Checking parent %s for original module path", parentRepoPath) // Added LogVf
 					// Use client wrapper method
 					parentFileContent, _, _, errParentContent := client.getCachedGetContents(ctx, parentOwner, parentRepo, "go.mod", nil) // Renamed err_parent_content
 					if errParentContent != nil {
-						log.Warnf("            Warn: Error checking parent go.mod for %s: %v", parentRepoPath, errParentContent) // Use renamed var
+						log.LogVf("            Parent go.mod check error for %s: %v", parentRepoPath, errParentContent) // Changed to LogVf
 					} else if parentFileContent != nil {
-						parentContent, errParentDecode := parentFileContent.GetContent()
+						parentContent, errParentDecode := parentFileContent.GetContent() // Renamed err_parent_decode
 						if errParentDecode == nil {
-							parentModFile, errParentParse := modfile.Parse(parentRepoPath+"/go.mod", []byte(parentContent), nil)
+							parentModFile, errParentParse := modfile.Parse(parentRepoPath+"/go.mod", []byte(parentContent), nil) // Renamed err_parent_parse
 							if errParentParse == nil {
 								originalModulePath = parentModFile.Module.Mod.Path
+								log.LogVf("            Found parent module path: %s", originalModulePath) // Added LogVf
 							} else {
 								log.Warnf("            Warn: Error parsing parent go.mod for %s: %v", parentRepoPath, errParentParse)
 							}
 						} else {
 							log.Warnf("            Warn: Error decoding parent go.mod content for %s: %v", parentRepoPath, errParentDecode)
-						} // Renamed err_parent_decode, err_parent_parse
+						}
+					} else {
+						log.LogVf("            Parent go.mod not found for %s", parentRepoPath) // Added LogVf
 					}
 				}
 				info := &ModuleInfo{Path: modulePath, RepoPath: repoPath, IsFork: isFork, OriginalModulePath: originalModulePath, Owner: owner, OwnerIdx: i, Deps: make(map[string]string), Fetched: true}

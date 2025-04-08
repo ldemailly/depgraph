@@ -9,9 +9,11 @@ import (
 )
 
 // --- Color Palettes ---
-var orgNonForkColors = []string{"lightblue", "lightgreen", "lightsalmon", "lightgoldenrodyellow", "lightpink"}
-var orgForkColors = []string{"steelblue", "darkseagreen", "coral", "darkkhaki", "mediumvioletred"}
-var externalColor = "lightgrey"
+var (
+	orgNonForkColors = []string{"lightblue", "lightgreen", "lightsalmon", "lightgoldenrodyellow", "lightpink"}
+	orgForkColors    = []string{"steelblue", "darkseagreen", "coral", "darkkhaki", "mediumvioletred"}
+	externalColor    = "lightgrey"
+)
 
 // --- End Color Palettes ---
 
@@ -211,6 +213,10 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 			if nodesToGraph[dep] { // Only consider edges pointing to included nodes
 				// Add edge from dep -> sourceMod in the reversed graph
 				log.LogVf("  Reverse TopoSort Edge: %s -> %s", dep, sourceMod)
+				// Ensure dep exists in reverseAdj map
+				if _, exists := reverseAdj[dep]; !exists {
+					reverseAdj[dep] = []string{}
+				}
 				reverseAdj[dep] = append(reverseAdj[dep], sourceMod)
 				inDegree[sourceMod]++ // Increment in-degree of the *source* in the reversed graph
 			}
@@ -284,8 +290,18 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 	for i, level := range resultLevels {
 		indent := strings.Repeat("  ", i)
 		fmt.Printf("%sLevel %d:\n", indent, i)
-		for _, node := range level {
-			fmt.Printf("%s  - %s\n", indent, node)
+		for _, nodePath := range level { // nodePath is the module path
+			outputStr := nodePath // Default output is module path
+			// Look up info to customize output for forks
+			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
+				outputStr = info.RepoPath // Use repo path for forks
+				// Append original module path if it was found (regardless of whether it differs now)
+				if info.OriginalModulePath != "" {
+					outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
+				}
+				// Note: Removed the check '&& info.Path != info.OriginalModulePath'
+			}
+			fmt.Printf("%s  - %s\n", indent, outputStr)
 		}
 	}
 }
