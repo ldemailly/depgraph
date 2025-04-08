@@ -83,6 +83,11 @@ go build
 ./depgraph <org1> [org2]... > dependencies.dot
 ```
 
+## Example
+Ran with fortio and grol-io (my orgs/repos)
+
+![graph](dependencies.svg)
+
 ## How it Works
 
 1.  **Initialization:** Sets up a GitHub API client (using the provided token if available). Defines module prefixes to identify "internal" modules.
