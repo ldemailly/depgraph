@@ -7,22 +7,15 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strings" // Added for prefix check
+
+	// No longer needed: "strings"
 
 	"github.com/google/go-github/v62/github"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/oauth2"
 )
 
-// Checks if a module path belongs to the target organizations.
-func isInternalModule(modulePath string, orgPrefixes []string) bool {
-	for _, prefix := range orgPrefixes {
-		if strings.HasPrefix(modulePath, prefix) {
-			return true
-		}
-	}
-	return false
-}
+// No longer needed: isInternalModule function
 
 // Fetches and parses go.mod files for non-fork, non-archived repos in specified GitHub orgs.
 // Outputs the dependency graph in DOT format.
@@ -31,11 +24,7 @@ func main() {
 		log.Fatalf("Usage: %s <org1> [org2]...", os.Args[0])
 	}
 	orgs := os.Args[1:]
-	// Derive module prefixes from org names (adjust if module paths differ significantly)
-	// This is a heuristic; assumes modules paths often start with org name or a known domain.
-	// You might need to customize this list based on your actual module paths.
-	modulePrefixes := []string{"fortio.org/", "grol.io/", "github.com/fortio/", "github.com/grol-io/"}
-	log.Printf("Identifying internal modules using prefixes: %v", modulePrefixes)
+	// Removed modulePrefixes definition and related logging
 
 	// --- GitHub Client Setup ---
 	token := os.Getenv("GITHUB_TOKEN")
@@ -45,7 +34,6 @@ func main() {
 	if token != "" {
 		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 		httpClient = oauth2.NewClient(ctx, ts)
-		// fmt.Println("Using authenticated GitHub API access.") // Keep console clean for DOT output
 	} else {
 		httpClient = http.DefaultClient
 		log.Println("Warning: GITHUB_TOKEN environment variable not set. Using unauthenticated access (may hit rate limits).")
@@ -54,6 +42,7 @@ func main() {
 	// --- End GitHub Client Setup ---
 
 	// Store dependencies: map[modulePath]map[dependencyPath]version
+	// The keys of this map represent the "internal" modules found in the target orgs.
 	dependencyMap := make(map[string]map[string]string)
 	// Keep track of all unique module paths encountered (both source and deps)
 	allModules := make(map[string]bool)
@@ -105,14 +94,15 @@ func main() {
 					log.Printf("    Warn: Empty module path in go.mod for %s", fullName)
 					continue
 				}
-				// Log found modules to stderr to keep stdout clean for DOT output
 				log.Printf("    Found module: %s (from repo %s)\n", modulePath, fullName)
 				allModules[modulePath] = true // Track this module
 
+				// Initialize map for this module if not present (ensures it's marked internal)
 				if _, exists := dependencyMap[modulePath]; !exists {
 					dependencyMap[modulePath] = make(map[string]string)
 				}
 
+				// Store direct dependencies
 				for _, req := range modFile.Require {
 					if !req.Indirect {
 						depPath := req.Mod.Path
@@ -138,11 +128,13 @@ func main() {
 
 	// Define node styles (internal vs external)
 	fmt.Println("  node [fillcolor=\"lightblue\"]; // Style for internal modules")
-	// Explicitly define internal nodes first with the internal style
 	internalNodes := []string{}
 	externalNodes := []string{}
+
+	// Iterate over *all* modules found (sources and dependencies)
 	for modPath := range allModules {
-		if isInternalModule(modPath, modulePrefixes) {
+		// A module is internal if its definition was found (i.e., it's a key in dependencyMap)
+		if _, isInternal := dependencyMap[modPath]; isInternal {
 			internalNodes = append(internalNodes, modPath)
 		} else {
 			externalNodes = append(externalNodes, modPath)
@@ -164,7 +156,7 @@ func main() {
 	}
 
 	fmt.Println("\n  // Edges (Dependencies)")
-	// Get sorted list of source module paths for consistent output
+	// Get sorted list of source module paths (which are the internal modules) for consistent output
 	sourceModulePaths := make([]string, 0, len(dependencyMap))
 	for modPath := range dependencyMap {
 		sourceModulePaths = append(sourceModulePaths, modPath)
