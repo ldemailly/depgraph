@@ -20,6 +20,7 @@ func main() {
 	noExtFlag := flag.Bool("noext", false, "Exclude external (non-org/user) dependencies from the graph")
 	useCacheFlag := flag.Bool("use-cache", true, "Enable filesystem caching for GitHub API calls")
 	clearCacheFlag := flag.Bool("clear-cache", false, "Clear the cache directory before running")
+	topoSortFlag := flag.Bool("topo-sort", false, "Output dependencies in topological sort order by level (text format, disables DOT output)") // New flag
 
 	// Configure and run fortio/cli to handle flags and args
 	cli.ArgsHelp = "owner1 [owner2...]" // Set custom usage text for arguments
@@ -33,6 +34,7 @@ func main() {
 	// Read flag values into local variables
 	noExt := *noExtFlag
 	useCache := *useCacheFlag // Local variable, passed down
+	topoSort := *topoSortFlag // Read topo-sort flag
 
 	// Initialize or clear cache
 	cacheDir, err := initCache()
@@ -209,8 +211,13 @@ func main() {
 	nodesToGraph := determineNodesToGraph(modulesFoundInOwners, allModulePaths, noExt)
 	// --- End Determine Nodes to Include in Graph ---
 
-	// --- Generate DOT Output ---
-	// Call function from graph.go
-	generateDotOutput(modulesFoundInOwners, nodesToGraph, noExt)
-	// --- End Generate DOT Output ---
+	// --- Generate Output ---
+	if topoSort {
+		// Call topological sort function from graph.go
+		performTopologicalSortAndPrint(modulesFoundInOwners, nodesToGraph)
+	} else {
+		// Call DOT generation function from graph.go
+		generateDotOutput(modulesFoundInOwners, nodesToGraph, noExt)
+	}
+	// --- End Generate Output ---
 }

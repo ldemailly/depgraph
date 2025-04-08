@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"fortio.org/log" // Using fortio log (Removed explicit name)
+	"fortio.org/log" // Using fortio log
 )
 
 // --- Color Palettes ---
@@ -55,10 +55,16 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 	for modPath, info := range modulesFoundInOwners {
 		if info.Fetched && info.IsFork {
 			includeReason := ""
+			// Include fork if it depends on a non-fork OR if a non-fork depends on its module path
 			if forksDependingOnNonFork[modPath] {
 				includeReason = "depends on non-fork"
 			} else if referencedModules[modPath] {
-				includeReason = "referenced by non-fork"
+				// Check if this reference is from a non-fork added in pass 1
+				// (This check might be complex/redundant if Pass 1 covers all non-fork refs)
+				// Let's simplify: if referencedModules[modPath] is true, it means *something*
+				// included so far depends on it. If that something was a non-fork, include the fork.
+				// We already track referencedModules from non-forks in Pass 1.
+				includeReason = "referenced by included module" // Simplified reason
 			}
 
 			if includeReason != "" {
@@ -177,5 +183,113 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 	fmt.Println("}")
 	// --- End Generate DOT Output ---
 }
+
+// --- Topological Sort Logic ---
+
+// performTopologicalSortAndPrint performs Kahn's algorithm and prints levels
+func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
+	adj := make(map[string][]string)
+	inDegree := make(map[string]int)
+	nodesInSort := []string{} // Keep track of nodes actually part of the sort
+
+	log.Infof("Building graph for topological sort...")
+	// Initialize in-degrees and identify nodes for sorting
+	for node := range nodesToGraph {
+		inDegree[node] = 0
+		nodesInSort = append(nodesInSort, node)
+	}
+
+	// Build adjacency list and calculate in-degrees based *only* on edges
+	// between nodes included in the final graph (`nodesToGraph`)
+	// and originating from modules we scanned (`modulesFoundInOwners`).
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] { // Skip sources not in the final graph
+			continue
+		}
+		if _, exists := adj[sourceMod]; !exists {
+			adj[sourceMod] = []string{}
+		}
+		for dep := range info.Deps {
+			if nodesToGraph[dep] { // Only consider edges pointing to included nodes
+				log.LogVf("  TopoSort Edge: %s -> %s", sourceMod, dep)
+				adj[sourceMod] = append(adj[sourceMod], dep)
+				inDegree[dep]++ // Increment in-degree of the target
+			}
+		}
+	}
+
+	// Initialize queue with nodes having in-degree 0
+	queue := []string{}
+	for _, node := range nodesInSort {
+		if inDegree[node] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	sort.Strings(queue) // Sort initial queue for deterministic order
+
+	resultLevels := [][]string{}
+	processedCount := 0
+
+	log.Infof("Starting topological sort...")
+	for len(queue) > 0 {
+		currentLevelSize := len(queue)
+		currentLevelNodes := make([]string, 0, currentLevelSize)
+		nextQueue := []string{} // Prepare next level's queue candidates
+
+		log.LogVf("  Processing Level %d with %d nodes: %v", len(resultLevels), currentLevelSize, queue)
+
+		// Process nodes at the current level
+		for i := 0; i < currentLevelSize; i++ {
+			u := queue[i]
+			currentLevelNodes = append(currentLevelNodes, u)
+			processedCount++
+
+			// For each neighbor v of u
+			neighbors := adj[u]     // Get neighbors from adjacency list
+			sort.Strings(neighbors) // Process neighbors alphabetically for determinism
+			for _, v := range neighbors {
+				inDegree[v]--
+				if inDegree[v] == 0 {
+					nextQueue = append(nextQueue, v) // Add to candidates for next level
+				}
+			}
+		}
+
+		// Add the processed level to results (already sorted alphabetically)
+		resultLevels = append(resultLevels, currentLevelNodes)
+
+		// Prepare and sort the queue for the next level
+		sort.Strings(nextQueue)
+		queue = nextQueue
+	}
+
+	// Check for cycles
+	if processedCount < len(nodesInSort) {
+		log.Warnf("Cycle detected in dependencies! Processed %d nodes, expected %d.", processedCount, len(nodesInSort))
+		log.Warnf("Nodes likely involved in cycles (in-degree > 0 after sort):")
+		remainingNodes := []string{}
+		for _, node := range nodesInSort {
+			if inDegree[node] > 0 {
+				remainingNodes = append(remainingNodes, node)
+			}
+		}
+		sort.Strings(remainingNodes)
+		for _, node := range remainingNodes {
+			log.Warnf("  - %s (in-degree: %d)", node, inDegree[node])
+		}
+	}
+
+	// Print the sorted levels
+	fmt.Println("Topological Sort Levels:")
+	for i, level := range resultLevels {
+		indent := strings.Repeat("  ", i)
+		fmt.Printf("%sLevel %d:\n", indent, i)
+		for _, node := range level {
+			fmt.Printf("%s  - %s\n", indent, node)
+		}
+	}
+}
+
+// --- End Topological Sort Logic ---
 
 // --- End Graph Generation Logic ---
