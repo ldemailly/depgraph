@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"flag" // Import flag package
+	"errors" // Import errors package
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,38 +15,46 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// ModuleInfo stores details about modules found in the scanned orgs
+// ModuleInfo stores details about modules found in the scanned owners (orgs or users)
 type ModuleInfo struct {
-	Path    string
-	IsFork  bool
-	Org     string            // Org where the module definition was found
-	OrgIdx  int               // Index of the org in the input list (for coloring)
-	Deps    map[string]string // path -> version
-	Fetched bool              // Indicates if the go.mod was successfully fetched and parsed
+	Path     string
+	IsFork   bool
+	Owner    string            // Owner (org or user) where the module definition was found
+	OwnerIdx int               // Index of the owner in the input list (for coloring)
+	Deps     map[string]string // path -> version
+	Fetched  bool              // Indicates if the go.mod was successfully fetched and parsed
 }
 
 // Define color palettes
-// Ensure these have enough colors or handle cycling gracefully
 var orgNonForkColors = []string{"lightblue", "lightgreen", "lightsalmon", "lightgoldenrodyellow", "lightpink"}
 var orgForkColors = []string{"steelblue", "darkseagreen", "coral", "darkkhaki", "mediumvioletred"}
 var externalColor = "lightgrey"
 
-// Fetches and parses go.mod files for repos in specified GitHub orgs.
+// isNotFoundError checks if an error is a GitHub API 404 Not Found error
+func isNotFoundError(err error) bool {
+	var ge *github.ErrorResponse
+	if errors.As(err, &ge) {
+		return ge.Response.StatusCode == http.StatusNotFound
+	}
+	return false
+}
+
+// Fetches and parses go.mod files for repos in specified GitHub orgs or user accounts.
 // Outputs the dependency graph in DOT format.
 func main() {
 	// --- Command Line Flags ---
-	noExt := flag.Bool("noext", false, "Exclude external (non-org) dependencies from the graph")
+	noExt := flag.Bool("noext", false, "Exclude external (non-org/user) dependencies from the graph")
 	flag.Parse() // Parse flags first
 
-	// Get orgs from remaining arguments
-	orgs := flag.Args()
-	if len(orgs) < 1 {
-		log.Fatalf("Usage: %s [-noext] <org1> [org2]...", os.Args[0])
+	// Get owners (orgs or users) from remaining arguments
+	owners := flag.Args()
+	if len(owners) < 1 {
+		log.Fatalf("Usage: %s [-noext] <owner1> [owner2]...", os.Args[0])
 	}
-	// Create a map for quick org index lookup
-	orgIndexMap := make(map[string]int)
-	for i, org := range orgs {
-		orgIndexMap[org] = i
+	// Create a map for quick owner index lookup
+	ownerIndexMap := make(map[string]int)
+	for i, owner := range owners {
+		ownerIndexMap[owner] = i
 	}
 	// --- End Command Line Flags ---
 
@@ -65,30 +74,59 @@ func main() {
 	// --- End GitHub Client Setup ---
 
 	// Store module info: map[modulePath]ModuleInfo
-	// Includes both forks and non-forks found in the target orgs.
-	modulesFoundInOrgs := make(map[string]*ModuleInfo)
+	modulesFoundInOwners := make(map[string]*ModuleInfo)
 	// Keep track of all unique module paths encountered (sources and dependencies)
 	allModulePaths := make(map[string]bool)
 
-	// --- Scan Organizations ---
-	for i, org := range orgs {
-		log.Printf("Processing organization %d: %s\n", i+1, org)
-		opt := &github.RepositoryListByOrgOptions{
-			Type:        "public", // Adjust if you need private repos
+	// --- Scan Owners (Orgs or Users) ---
+	for i, owner := range owners {
+		log.Printf("Processing owner %d: %s\n", i+1, owner)
+
+		var repos []*github.Repository
+		var resp *github.Response
+		var err error
+		isOrg := true // Assume org first
+		// Declare options structs here to ensure they are in scope for pagination
+		var orgOpt *github.RepositoryListByOrgOptions
+		var userOpt *github.RepositoryListOptions
+
+		// Try listing as an Organization
+		orgOpt = &github.RepositoryListByOrgOptions{
+			Type:        "public",
 			ListOptions: github.ListOptions{PerPage: 100},
 		}
+		repos, resp, err = client.Repositories.ListByOrg(ctx, owner, orgOpt)
 
-		for {
-			repos, resp, err := client.Repositories.ListByOrg(ctx, org, opt)
-			if err != nil {
-				// Handle rate limiting specifically
-				if rlErr, ok := err.(*github.RateLimitError); ok {
-					log.Printf("Rate limit hit. Pausing until %v", rlErr.Rate.Reset.Time)
-					// Consider adding time.Sleep(time.Until(rlErr.Rate.Reset.Time))
+		if err != nil {
+			if isNotFoundError(err) {
+				log.Printf("    Owner %s not found as an organization, trying as a user...", owner)
+				isOrg = false // It's not an org (or not accessible as one)
+				// Try listing as a User
+				// Initialize userOpt here (it's already declared above)
+				userOpt = &github.RepositoryListOptions{
+					Type:        "owner", // Repos owned by the user
+					Visibility:  "public",
+					ListOptions: github.ListOptions{PerPage: 100},
 				}
-				log.Printf("Error listing repositories for %s: %v", org, err)
-				break // Stop processing this org on error
+				repos, resp, err = client.Repositories.List(ctx, owner, userOpt) // Use List for users
 			}
+
+			// If there's still an error after trying both (or it wasn't a 404)
+			if err != nil {
+				log.Printf("Error listing repositories for %s: %v", owner, err)
+				continue // Skip this owner
+			}
+		}
+
+		// --- Paginate and Process Repos ---
+		currentPage := 1
+		for {
+			// Check if repos slice is nil (can happen if initial List call failed but didn't error out completely)
+			if repos == nil {
+				log.Printf("    No repositories found or error occurred for page %d for %s", currentPage, owner)
+				break
+			}
+			log.Printf("    Processing page %d for %s (as %s), %d repos", currentPage, owner, map[bool]string{true: "org", false: "user"}[isOrg], len(repos))
 
 			for _, repo := range repos {
 				// Process both forks and non-forks, but skip archived
@@ -98,47 +136,50 @@ func main() {
 
 				isFork := repo.GetFork()
 				repoName := repo.GetName()
-				fullName := fmt.Sprintf("%s/%s", org, repoName)
+				// Use repo.Owner.GetLogin() which works for both org and user repos
+				repoOwnerLogin := repo.GetOwner().GetLogin()
+				// Need owner/repo for GetContents
+				// Use the actual owner login from the repo object for GetContents path, more reliable
+				contentOwner := repoOwnerLogin
 
 				// --- Get and Parse go.mod ---
-				fileContent, _, _, err := client.Repositories.GetContents(ctx, org, repoName, "go.mod", nil)
-				if err != nil {
-					// Log only unexpected errors, not 404s
-					if _, ok := err.(*github.ErrorResponse); !ok || err.(*github.ErrorResponse).Response.StatusCode != 404 {
-						log.Printf("    Warn: Error getting go.mod for %s: %v", fullName, err)
+				fileContent, _, _, err_content := client.Repositories.GetContents(ctx, contentOwner, repoName, "go.mod", nil)
+				if err_content != nil {
+					if !isNotFoundError(err_content) { // Log only unexpected errors
+						log.Printf("        Warn: Error getting go.mod for %s/%s: %v", contentOwner, repoName, err_content)
 					}
 					continue // Skip repo if go.mod fetch fails
 				}
-				content, err := fileContent.GetContent()
-				if err != nil {
-					log.Printf("    Warn: Error decoding go.mod content for %s: %v", fullName, err)
+				content, err_decode := fileContent.GetContent()
+				if err_decode != nil {
+					log.Printf("        Warn: Error decoding go.mod content for %s/%s: %v", contentOwner, repoName, err_decode)
 					continue
 				}
-				modFile, err := modfile.Parse(fmt.Sprintf("%s/go.mod", fullName), []byte(content), nil)
-				if err != nil {
-					log.Printf("    Warn: Error parsing go.mod for %s: %v", fullName, err)
+				modFile, err_parse := modfile.Parse(fmt.Sprintf("%s/%s/go.mod", contentOwner, repoName), []byte(content), nil)
+				if err_parse != nil {
+					log.Printf("        Warn: Error parsing go.mod for %s/%s: %v", contentOwner, repoName, err_parse)
 					continue
 				}
 				modulePath := modFile.Module.Mod.Path
 				if modulePath == "" {
-					log.Printf("    Warn: Empty module path in go.mod for %s", fullName)
+					log.Printf("        Warn: Empty module path in go.mod for %s/%s", contentOwner, repoName)
 					continue
 				}
 				// --- End Get and Parse go.mod ---
 
-				log.Printf("    Found module: %s (fork: %v) (from repo %s)\n", modulePath, isFork, fullName)
+				log.Printf("        Found module: %s (fork: %v) (from repo %s/%s)\n", modulePath, isFork, repoOwnerLogin, repoName)
 				allModulePaths[modulePath] = true // Track this module path
 
 				// Store or update module info
 				info := &ModuleInfo{
-					Path:    modulePath,
-					IsFork:  isFork,
-					Org:     org,
-					OrgIdx:  i,
-					Deps:    make(map[string]string),
-					Fetched: true,
+					Path:     modulePath,
+					IsFork:   isFork,
+					Owner:    owner, // Use the original input owner name for grouping/coloring
+					OwnerIdx: i,
+					Deps:     make(map[string]string),
+					Fetched:  true,
 				}
-				modulesFoundInOrgs[modulePath] = info
+				modulesFoundInOwners[modulePath] = info
 
 				// Store direct dependencies
 				for _, req := range modFile.Require {
@@ -149,37 +190,66 @@ func main() {
 						allModulePaths[depPath] = true // Track the dependency module path as well
 					}
 				}
+			} // End processing repos on current page
+
+			// --- Pagination ---
+			if resp == nil || resp.NextPage == 0 {
+				break // No more pages
+			}
+			log.Printf("    Fetching next page (%d) for %s", resp.NextPage, owner)
+			// Re-fetch based on whether it's org or user
+			if isOrg {
+				// Ensure orgOpt is not nil (shouldn't be if isOrg is true)
+				if orgOpt == nil {
+					log.Printf("    Error: orgOpt is nil during pagination for org %s", owner)
+					break
+				}
+				orgOpt.Page = resp.NextPage
+				repos, resp, err = client.Repositories.ListByOrg(ctx, owner, orgOpt)
+			} else {
+				// Ensure userOpt is not nil (it's initialized if isOrg became false)
+				if userOpt == nil {
+					log.Printf("    Error: userOpt is nil during pagination for user %s", owner)
+					break
+				}
+				userOpt.Page = resp.NextPage
+				repos, resp, err = client.Repositories.List(ctx, owner, userOpt)
 			}
 
-			if resp.NextPage == 0 {
-				break
+			if err != nil {
+				log.Printf("Error fetching next page for %s: %v", owner, err)
+				break // Stop pagination on error
 			}
-			opt.Page = resp.NextPage
-		}
-	}
-	// --- End Scan Organizations ---
+			currentPage++
+			// --- End Pagination ---
+
+		} // End pagination loop
+		// --- End Paginate and Process Repos ---
+
+	} // End loop through owners
+	// --- End Scan Owners ---
 
 	// --- Determine Nodes to Include in Graph ---
+	// (This section remains the same)
 	nodesToGraph := make(map[string]bool)        // Set of module paths to include
 	referencedByNonFork := make(map[string]bool) // Set of modules depended on by non-forks
 
-	// First pass: identify dependencies of non-forks
-	for modPath, info := range modulesFoundInOrgs {
+	// First pass: identify dependencies of non-forks found in owners
+	for modPath, info := range modulesFoundInOwners {
 		if info.Fetched && !info.IsFork {
-			nodesToGraph[modPath] = true // Always include non-forks found in orgs
+			nodesToGraph[modPath] = true // Always include non-forks found in owners
 			for depPath := range info.Deps {
 				referencedByNonFork[depPath] = true
 			}
 		}
 	}
 
-	// Second pass: add forks *if* they are referenced by a non-fork
-	for modPath, info := range modulesFoundInOrgs {
+	// Second pass: add forks found in owners *if* they are referenced by a non-fork
+	for modPath, info := range modulesFoundInOwners {
 		if info.Fetched && info.IsFork {
 			if referencedByNonFork[modPath] {
 				nodesToGraph[modPath] = true
 				// Also mark dependencies of included forks as referenced
-				// (though this doesn't affect fork inclusion itself, it helps ensure external deps are added if needed)
 				for depPath := range info.Deps {
 					referencedByNonFork[depPath] = true // Mark deps of included forks
 				}
@@ -187,14 +257,13 @@ func main() {
 		}
 	}
 
-	// Third pass: add external dependencies if needed
+	// Third pass: add external dependencies if needed and not excluded
 	if !*noExt {
 		for modPath := range allModulePaths {
-			// If a module is referenced OR is an included node itself, add it.
-			// Check if it's NOT one of the modules we found in orgs (i.e., external)
+			// Check if it's NOT one of the modules we found in owners (i.e., external)
 			// AND if it's referenced by a non-fork (or an included fork).
-			_, foundInOrg := modulesFoundInOrgs[modPath]
-			if !foundInOrg && referencedByNonFork[modPath] {
+			_, foundInOwner := modulesFoundInOwners[modPath]
+			if !foundInOwner && referencedByNonFork[modPath] {
 				nodesToGraph[modPath] = true
 			}
 		}
@@ -202,6 +271,7 @@ func main() {
 	// --- End Determine Nodes to Include in Graph ---
 
 	// --- Generate DOT Output ---
+	// (This section remains the same)
 	fmt.Println("digraph dependencies {")
 	fmt.Println("  rankdir=\"LR\";")
 	fmt.Println("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];")
@@ -219,17 +289,16 @@ func main() {
 
 	for _, nodePath := range sortedNodes {
 		color := externalColor // Default to external
-		if info, found := modulesFoundInOrgs[nodePath]; found {
-			// It's an internal module (fork or non-fork)
-			orgIdx := info.OrgIdx
+		if info, found := modulesFoundInOwners[nodePath]; found {
+			// It's an internal module (fork or non-fork) from one of the owners
+			ownerIdx := info.OwnerIdx
 			if info.IsFork {
-				color = orgForkColors[orgIdx%len(orgForkColors)] // Cycle through fork colors
+				color = orgForkColors[ownerIdx%len(orgForkColors)] // Cycle through fork colors
 			} else {
-				color = orgNonForkColors[orgIdx%len(orgNonForkColors)] // Cycle through non-fork colors
+				color = orgNonForkColors[ownerIdx%len(orgNonForkColors)] // Cycle through non-fork colors
 			}
 		} else if *noExt {
-			// This should not happen if logic above is correct, but as safety:
-			// If it's external and -noext is set, skip definition (it shouldn't be in nodesToGraph anyway)
+			// Skip external node definition if -noext is set
 			continue
 		}
 		nodeColors[nodePath] = color
@@ -239,7 +308,7 @@ func main() {
 	fmt.Println("\n  // Edges (Dependencies)")
 	// Get sorted list of source module paths *that are included in the graph*
 	sourceModulesInGraph := []string{}
-	for modPath := range modulesFoundInOrgs {
+	for modPath := range modulesFoundInOwners {
 		if nodesToGraph[modPath] { // Only consider sources that are actually in the graph
 			sourceModulesInGraph = append(sourceModulesInGraph, modPath)
 		}
@@ -248,7 +317,7 @@ func main() {
 
 	// Print edges
 	for _, sourceModPath := range sourceModulesInGraph {
-		info := modulesFoundInOrgs[sourceModPath] // We know it exists
+		info := modulesFoundInOwners[sourceModPath] // We know it exists
 		// Get sorted list of dependency paths
 		depPaths := make([]string, 0, len(info.Deps))
 		for depPath := range info.Deps {
