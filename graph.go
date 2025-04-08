@@ -59,12 +59,7 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 			if forksDependingOnNonFork[modPath] {
 				includeReason = "depends on non-fork"
 			} else if referencedModules[modPath] {
-				// Check if this reference is from a non-fork added in pass 1
-				// (This check might be complex/redundant if Pass 1 covers all non-fork refs)
-				// Let's simplify: if referencedModules[modPath] is true, it means *something*
-				// included so far depends on it. If that something was a non-fork, include the fork.
-				// We already track referencedModules from non-forks in Pass 1.
-				includeReason = "referenced by included module" // Simplified reason
+				includeReason = "referenced by included module"
 			}
 
 			if includeReason != "" {
@@ -186,39 +181,44 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 
 // --- Topological Sort Logic ---
 
-// performTopologicalSortAndPrint performs Kahn's algorithm and prints levels
+// performTopologicalSortAndPrint performs Kahn's algorithm on the REVERSE graph
+// to print levels starting with leaves (nodes with no outgoing edges in original graph).
 func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
-	adj := make(map[string][]string)
-	inDegree := make(map[string]int)
-	nodesInSort := []string{} // Keep track of nodes actually part of the sort
+	reverseAdj := make(map[string][]string) // Adjacency list for the *reversed* graph
+	inDegree := make(map[string]int)        // In-degree based on the *reversed* graph
+	nodesInSort := []string{}               // Keep track of nodes actually part of the sort
 
-	log.Infof("Building graph for topological sort...")
+	log.Infof("Building reversed graph for topological sort...")
 	// Initialize in-degrees and identify nodes for sorting
 	for node := range nodesToGraph {
-		inDegree[node] = 0
+		inDegree[node] = 0 // Initialize in-degree for all nodes in the graph
 		nodesInSort = append(nodesInSort, node)
 	}
 
-	// Build adjacency list and calculate in-degrees based *only* on edges
+	// Build *reversed* adjacency list and calculate in-degrees based *only* on edges
 	// between nodes included in the final graph (`nodesToGraph`)
 	// and originating from modules we scanned (`modulesFoundInOwners`).
 	for sourceMod, info := range modulesFoundInOwners {
 		if !nodesToGraph[sourceMod] { // Skip sources not in the final graph
 			continue
 		}
-		if _, exists := adj[sourceMod]; !exists {
-			adj[sourceMod] = []string{}
+		// Ensure sourceMod exists in reverseAdj map even if it has no incoming edges (in reversed graph)
+		if _, exists := reverseAdj[sourceMod]; !exists {
+			reverseAdj[sourceMod] = []string{}
 		}
+
 		for dep := range info.Deps {
 			if nodesToGraph[dep] { // Only consider edges pointing to included nodes
-				log.LogVf("  TopoSort Edge: %s -> %s", sourceMod, dep)
-				adj[sourceMod] = append(adj[sourceMod], dep)
-				inDegree[dep]++ // Increment in-degree of the target
+				// Add edge from dep -> sourceMod in the reversed graph
+				log.LogVf("  Reverse TopoSort Edge: %s -> %s", dep, sourceMod)
+				reverseAdj[dep] = append(reverseAdj[dep], sourceMod)
+				inDegree[sourceMod]++ // Increment in-degree of the *source* in the reversed graph
 			}
 		}
 	}
 
-	// Initialize queue with nodes having in-degree 0
+	// Initialize queue with nodes having in-degree 0 (in the reversed graph)
+	// These are the leaves of the original graph.
 	queue := []string{}
 	for _, node := range nodesInSort {
 		if inDegree[node] == 0 {
@@ -230,7 +230,7 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 	resultLevels := [][]string{}
 	processedCount := 0
 
-	log.Infof("Starting topological sort...")
+	log.Infof("Starting topological sort (leaves first)...")
 	for len(queue) > 0 {
 		currentLevelSize := len(queue)
 		currentLevelNodes := make([]string, 0, currentLevelSize)
@@ -240,22 +240,22 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 
 		// Process nodes at the current level
 		for i := 0; i < currentLevelSize; i++ {
-			u := queue[i]
+			u := queue[i] // u is a node with in-degree 0 in the reversed graph (a leaf in original)
 			currentLevelNodes = append(currentLevelNodes, u)
 			processedCount++
 
-			// For each neighbor v of u
-			neighbors := adj[u]     // Get neighbors from adjacency list
-			sort.Strings(neighbors) // Process neighbors alphabetically for determinism
+			// For each neighbor v of u in the *reversed* graph (i.e., nodes that depended on u in original)
+			neighbors := reverseAdj[u] // Get neighbors from reversed adjacency list
+			sort.Strings(neighbors)    // Process neighbors alphabetically for determinism
 			for _, v := range neighbors {
-				inDegree[v]--
+				inDegree[v]-- // Decrement in-degree of node v (which depended on u)
 				if inDegree[v] == 0 {
-					nextQueue = append(nextQueue, v) // Add to candidates for next level
+					nextQueue = append(nextQueue, v) // Add v to candidates for next level
 				}
 			}
 		}
 
-		// Add the processed level to results (already sorted alphabetically)
+		// Add the processed level to results (nodes are sorted alphabetically)
 		resultLevels = append(resultLevels, currentLevelNodes)
 
 		// Prepare and sort the queue for the next level
@@ -263,10 +263,10 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		queue = nextQueue
 	}
 
-	// Check for cycles
+	// Check for cycles (same logic applies to reversed graph)
 	if processedCount < len(nodesInSort) {
 		log.Warnf("Cycle detected in dependencies! Processed %d nodes, expected %d.", processedCount, len(nodesInSort))
-		log.Warnf("Nodes likely involved in cycles (in-degree > 0 after sort):")
+		log.Warnf("Nodes likely involved in cycles (in-degree > 0 after sort on reversed graph):")
 		remainingNodes := []string{}
 		for _, node := range nodesInSort {
 			if inDegree[node] > 0 {
@@ -275,12 +275,12 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		}
 		sort.Strings(remainingNodes)
 		for _, node := range remainingNodes {
-			log.Warnf("  - %s (in-degree: %d)", node, inDegree[node])
+			log.Warnf("  - %s (remaining reversed in-degree: %d)", node, inDegree[node])
 		}
 	}
 
-	// Print the sorted levels
-	fmt.Println("Topological Sort Levels:")
+	// Print the sorted levels (Level 0 now contains original leaves)
+	fmt.Println("Topological Sort Levels (Leaves First):")
 	for i, level := range resultLevels {
 		indent := strings.Repeat("  ", i)
 		fmt.Printf("%sLevel %d:\n", indent, i)
