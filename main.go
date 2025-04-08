@@ -17,8 +17,8 @@ import (
 	"strconv" // For page number conversion
 	"strings"
 
-	"fortio.org/cli"     // Import fortio cli
-	log "fortio.org/log" // Import fortio log
+	"fortio.org/cli" // Import fortio cli
+	"fortio.org/log" // Import fortio log
 	"github.com/google/go-github/v62/github"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/oauth2"
@@ -54,10 +54,6 @@ type CachedContentResponse struct {
 
 // --- End Caching Data Structures ---
 
-// --- Global Cache Variables ---
-// Removed cacheDir and useCache globals
-// --- End Global Cache Variables ---
-
 // --- Utility Functions (isNotFoundError) ---
 func isNotFoundError(err error) bool {
 	var ge *github.ErrorResponse
@@ -70,19 +66,16 @@ func isNotFoundError(err error) bool {
 // --- End Utility Functions ---
 
 // --- Cache Handling Functions ---
-
-// initCache sets up and returns the cache directory path
+// (initCache, clearCache, getCacheKey, readCache, writeCache remain the same)
 func initCache() (string, error) {
 	userCacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user cache directory: %w", err)
 	}
 	cacheDir := filepath.Join(userCacheDir, "depgraph_cache")
-	log.LogVf("Using cache directory: %s", cacheDir) // Verbose log
+	log.LogVf("Using cache directory: %s", cacheDir)
 	return cacheDir, os.MkdirAll(cacheDir, 0755)
 }
-
-// clearCache removes the cache directory
 func clearCache(cacheDir string) error {
 	if cacheDir == "" {
 		return errors.New("cache directory not initialized")
@@ -90,8 +83,6 @@ func clearCache(cacheDir string) error {
 	log.Infof("Clearing cache directory: %s", cacheDir)
 	return os.RemoveAll(cacheDir)
 }
-
-// getCacheKey generates a filename for the cache based on input parameters
 func getCacheKey(cacheDir string, parts ...string) string {
 	h := sha1.New()
 	for _, p := range parts {
@@ -101,9 +92,7 @@ func getCacheKey(cacheDir string, parts ...string) string {
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 	return filepath.Join(cacheDir, hash+".json")
 }
-
-// readCache attempts to read and unmarshal data from a cache file
-func readCache(key string, target interface{}, useCache bool) (bool, error) { // Added useCache param
+func readCache(key string, target interface{}, useCache bool) (bool, error) {
 	if !useCache {
 		return false, nil
 	}
@@ -114,22 +103,17 @@ func readCache(key string, target interface{}, useCache bool) (bool, error) { //
 		}
 		return false, fmt.Errorf("error reading cache file %s: %w", key, err)
 	}
-
 	err = json.Unmarshal(data, target)
 	if err != nil {
 		log.Warnf("Error unmarshaling cache file %s, ignoring cache: %v", key, err)
 		return false, nil
 	}
-
 	if contentCache, ok := target.(*CachedContentResponse); ok {
 		log.LogVf("Cache read successful for %s - Cached Found status: %v", key, contentCache.Found)
 	}
-
 	return true, nil
 }
-
-// writeCache marshals and writes data to a cache file
-func writeCache(key string, data interface{}, useCache bool) error { // Added useCache param
+func writeCache(key string, data interface{}, useCache bool) error {
 	if !useCache {
 		return nil
 	}
@@ -150,16 +134,15 @@ func writeCache(key string, data interface{}, useCache bool) error { // Added us
 // --- End Cache Handling Functions ---
 
 // --- Cached GitHub API Wrappers ---
-// Updated signatures to accept cacheDir and useCache
 
 func getCachedListByOrg(ctx context.Context, client *github.Client, owner string, opt *github.RepositoryListByOrgOptions, cacheDir string, useCache bool) ([]*github.Repository, *github.Response, error) {
 	keyParts := []string{"ListByOrg", owner, strconv.Itoa(opt.Page)}
 	cacheKey := getCacheKey(cacheDir, keyParts...)
-	var cachedData CachedListResponse // Pass cacheDir
+	var cachedData CachedListResponse
 	hit, readErr := readCache(cacheKey, &cachedData, useCache)
 	if readErr != nil {
 		log.Errf("Error reading cache for %v: %v", keyParts, readErr)
-	} // Pass useCache
+	}
 	if hit {
 		log.LogVf("Cache hit for ListByOrg owner=%s page=%d", owner, opt.Page)
 		resp := &github.Response{NextPage: cachedData.NextPage}
@@ -174,32 +157,40 @@ func getCachedListByOrg(ctx context.Context, client *github.Client, owner string
 	writeErr := writeCache(cacheKey, dataToCache, useCache)
 	if writeErr != nil {
 		log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
-	} // Pass useCache
+	}
 	return repos, resp, nil
 }
-func getCachedList(ctx context.Context, client *github.Client, owner string, opt *github.RepositoryListOptions, cacheDir string, useCache bool) ([]*github.Repository, *github.Response, error) {
-	keyParts := []string{"List", owner, opt.Type, opt.Visibility, strconv.Itoa(opt.Page)}
+
+// Updated getCachedList to use ListByUser and RepositoryListByUserOptions
+func getCachedListByUser(ctx context.Context, client *github.Client, user string, opt *github.RepositoryListByUserOptions, cacheDir string, useCache bool) ([]*github.Repository, *github.Response, error) {
+	// Update cache key parts based on ListByUserOptions fields used
+	keyParts := []string{"ListByUser", user, opt.Type, strconv.Itoa(opt.Page)}
 	cacheKey := getCacheKey(cacheDir, keyParts...)
-	var cachedData CachedListResponse // Pass cacheDir
+	var cachedData CachedListResponse
+
 	hit, readErr := readCache(cacheKey, &cachedData, useCache)
 	if readErr != nil {
 		log.Errf("Error reading cache for %v: %v", keyParts, readErr)
-	} // Pass useCache
+	}
 	if hit {
-		log.LogVf("Cache hit for List owner=%s page=%d", owner, opt.Page)
+		log.LogVf("Cache hit for ListByUser user=%s type=%s page=%d", user, opt.Type, opt.Page)
 		resp := &github.Response{NextPage: cachedData.NextPage}
 		return cachedData.Repos, resp, nil
 	}
-	log.Infof("Cache miss for List owner=%s page=%d, calling API", owner, opt.Page)
-	repos, resp, apiErr := client.Repositories.List(ctx, owner, opt)
+
+	log.Infof("Cache miss for ListByUser user=%s type=%s page=%d, calling API", user, opt.Type, opt.Page)
+	// Use the non-deprecated ListByUser method
+	repos, resp, apiErr := client.Repositories.ListByUser(ctx, user, opt)
 	if apiErr != nil {
 		return nil, resp, apiErr
 	}
+
 	dataToCache := CachedListResponse{Repos: repos, NextPage: resp.NextPage}
 	writeErr := writeCache(cacheKey, dataToCache, useCache)
 	if writeErr != nil {
 		log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
-	} // Pass useCache
+	}
+
 	return repos, resp, nil
 }
 
@@ -210,11 +201,11 @@ func getCachedGetContents(ctx context.Context, client *github.Client, owner, rep
 	}
 	keyParts := []string{"GetContents", owner, repo, path, ref}
 	cacheKey := getCacheKey(cacheDir, keyParts...)
-	var cachedData CachedContentResponse // Pass cacheDir
+	var cachedData CachedContentResponse
 	hit, readErr := readCache(cacheKey, &cachedData, useCache)
 	if readErr != nil {
 		log.Errf("Error reading cache for %v: %v", keyParts, readErr)
-	} // Pass useCache
+	}
 
 	if hit {
 		if !cachedData.Found {
@@ -236,7 +227,7 @@ func getCachedGetContents(ctx context.Context, client *github.Client, owner, rep
 			writeErr := writeCache(cacheKey, dataToCache, useCache)
 			if writeErr != nil {
 				log.Errf("Error writing 'Not Found' cache for %v: %v", keyParts, writeErr)
-			} // Pass useCache
+			}
 			return nil, nil, resp, nil
 		} else {
 			return nil, nil, resp, apiErr
@@ -247,7 +238,7 @@ func getCachedGetContents(ctx context.Context, client *github.Client, owner, rep
 		writeErr := writeCache(cacheKey, dataToCache, useCache)
 		if writeErr != nil {
 			log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
-		} // Pass useCache
+		}
 	} else {
 		log.LogVf("Skipping cache write for directory listing: %v", keyParts)
 	}
@@ -325,16 +316,18 @@ func main() {
 		var err error
 		isOrg := true
 		var orgOpt *github.RepositoryListByOrgOptions
-		var userOpt *github.RepositoryListOptions
+		var userOpt *github.RepositoryListByUserOptions // Use correct options type
+
 		orgOpt = &github.RepositoryListByOrgOptions{Type: "public", ListOptions: github.ListOptions{PerPage: 100}}
-		// Pass cacheDir and useCache to cached wrappers
 		repos, resp, err = getCachedListByOrg(ctx, client, owner, orgOpt, cacheDir, useCache)
 		if err != nil {
 			if isNotFoundError(err) {
 				log.Infof("    Owner %s not found as an organization, trying as a user...", owner)
 				isOrg = false
-				userOpt = &github.RepositoryListOptions{Type: "owner", Visibility: "public", ListOptions: github.ListOptions{PerPage: 100}}
-				repos, resp, err = getCachedList(ctx, client, owner, userOpt, cacheDir, useCache) // Pass cacheDir and useCache
+				// Initialize with correct options type
+				userOpt = &github.RepositoryListByUserOptions{Type: "owner", ListOptions: github.ListOptions{PerPage: 100}}
+				// Call the updated wrapper function
+				repos, resp, err = getCachedListByUser(ctx, client, owner, userOpt, cacheDir, useCache)
 			}
 			if err != nil {
 				log.Errf("Error listing repositories for %s: %v", owner, err)
@@ -358,7 +351,6 @@ func main() {
 				repoPath := fmt.Sprintf("%s/%s", repoOwnerLogin, repoName)
 				contentOwner := repoOwnerLogin
 
-				// Pass cacheDir and useCache to cached wrappers
 				fileContent, _, _, err_content := getCachedGetContents(ctx, client, contentOwner, repoName, "go.mod", nil, cacheDir, useCache)
 
 				if err_content != nil {
@@ -392,7 +384,6 @@ func main() {
 					parentOwner := parent.GetOwner().GetLogin()
 					parentRepo := parent.GetName()
 					parentRepoPath := fmt.Sprintf("%s/%s", parentOwner, parentRepo)
-					// Pass cacheDir and useCache to cached wrappers
 					parentFileContent, _, _, err_parent_content := getCachedGetContents(ctx, client, parentOwner, parentRepo, "go.mod", nil, cacheDir, useCache)
 					if err_parent_content != nil {
 						log.Warnf("            Warn: Error checking parent go.mod for %s: %v", parentRepoPath, err_parent_content)
@@ -425,20 +416,18 @@ func main() {
 			}
 			log.LogVf("    Fetching next page (%d) for %s", resp.NextPage, owner)
 			if isOrg {
-				if orgOpt == nil {
-					log.Errf("    Error: orgOpt is nil during pagination for org %s", owner)
-					break
-				}
+				// Removed redundant nil check for orgOpt here
 				orgOpt.Page = resp.NextPage
-				repos, resp, err = getCachedListByOrg(ctx, client, owner, orgOpt, cacheDir, useCache) // Pass cacheDir and useCache
+				repos, resp, err = getCachedListByOrg(ctx, client, owner, orgOpt, cacheDir, useCache)
 			} else {
 				if userOpt == nil {
 					log.Errf("    Error: userOpt is nil during pagination for user %s", owner)
 					break
-				}
+				} // Keep nil check for userOpt as it's conditionally initialized
 				userOpt.Page = resp.NextPage
-				repos, resp, err = getCachedList(ctx, client, owner, userOpt, cacheDir, useCache)
-			} // Pass cacheDir and useCache
+				// Call the updated wrapper function
+				repos, resp, err = getCachedListByUser(ctx, client, owner, userOpt, cacheDir, useCache)
+			}
 			if err != nil {
 				log.Errf("Error fetching next page for %s: %v", owner, err)
 				break
