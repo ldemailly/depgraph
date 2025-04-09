@@ -127,7 +127,7 @@ digraph dependencies {
   "github.com/fortio/logger-bench" -> "go.uber.org/zap" [label="v1.27.0"];
   "github.com/fortio/semtest/v2" -> "fortio.org/fortio" [label="v1.35.0"];
   "github.com/fortio/workflows" -> "fortio.org/log" [label="v1.17.2"];
-  "github.com/fortio/workflows" -> "fortio.org/scli" [label="v1.16.0"];
+  "github.com/fortio/workflows" -> "fortio.org/scli" [label="v1.16.1"];
   "github.com/ldemailly/advent24" -> "fortio.org/sets" [label="v1.2.0"];
   "github.com/ldemailly/depgraph" -> "fortio.org/cli" [label="v1.10.0"];
   "github.com/ldemailly/depgraph" -> "fortio.org/log" [label="v1.17.2"];

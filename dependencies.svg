@@ -742,7 +742,7 @@
 <title>github.com/fortio/workflows&#45;&gt;fortio.org/scli</title>
 <path fill="none" stroke="black" d="M481.29,-1810.58C499.2,-1802.67 517.51,-1791.75 530.75,-1777 547.15,-1758.72 538.38,-1747.01 548.75,-1724.75 560.52,-1699.5 571.8,-1697.3 581,-1671 600.99,-1613.86 577.24,-1592.49 599,-1536 622.86,-1474.05 671.44,-1412.67 701,-1378.8"/>
 <polygon fill="black" stroke="black" points="703.43,-1381.34 707.44,-1371.53 698.19,-1376.7 703.43,-1381.34"/>
-<text text-anchor="middle" x="564.88" y="-1726.5" font-family="Helvetica,sans-Serif" font-size="10.00">v1.16.0</text>
+<text text-anchor="middle" x="564.88" y="-1726.5" font-family="Helvetica,sans-Serif" font-size="10.00">v1.16.1</text>
 </g>
 <!-- github.com/ldemailly/advent24 -->
 <g id="node31" class="node">
