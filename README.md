@@ -207,4 +207,5 @@ All the code in 0.1.0 is generated through many iterations/prompts of Gemini 2.5
 
 The driving and idea and need and "QA"ing is my own (ldemailly) but I haven't (yet) reviewed the code outside of pointing out errors etc
 
+For code quality and structure see my other repos (in fortio/)
 
