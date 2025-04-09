@@ -72,19 +72,11 @@ func main() {
 		log.Warnf("GITHUB_TOKEN environment variable not set. Using unauthenticated access (may hit rate limits).")
 	}
 	ghClient := github.NewClient(httpClient)
-	// Create client wrapper
 	client := NewClientWrapper(ghClient, cacheDir, useCache)
 	// --- End GitHub Client Setup ---
 
-	// Store module info: map[modulePath]*ModuleInfo
-	// Key: Declared module path from go.mod
-	// Value: Pointer to ModuleInfo for the *highest priority* repo found declaring that path (Non-Fork > Fork).
 	modulesFoundInOwners := make(map[string]*ModuleInfo)
-	// Keep track of *all* successfully processed ModuleInfo structs from scanned repos.
-	// Used for post-processing fork/non-fork path collisions.
-	// allScannedModules := []*ModuleInfo{} // Keep this if needed for other logic, otherwise remove
-	// Keep track of all unique module paths encountered (sources and dependencies)
-	// This is used later to potentially include external dependencies.
+	// allScannedModules := []*ModuleInfo{} // Removed as not strictly needed for current logic
 	allModulePaths := make(map[string]bool)
 
 	// --- Scan Owners (Orgs or Users) ---
@@ -95,24 +87,21 @@ func main() {
 		var err error
 		isOrg := true
 		var orgOpt *github.RepositoryListByOrgOptions
-		var userOpt *github.RepositoryListByUserOptions // Use correct options type
+		var userOpt *github.RepositoryListByUserOptions
 
 		orgOpt = &github.RepositoryListByOrgOptions{Type: "public", ListOptions: github.ListOptions{PerPage: 100}}
-		// Use client wrapper methods
 		repos, resp, err = client.getCachedListByOrg(ctx, owner, orgOpt)
 		if err != nil {
-			// Check specifically for 404 or similar indicating it might be a user
 			var errResp *github.ErrorResponse
 			if errors.As(err, &errResp) && (errResp.Response.StatusCode == http.StatusNotFound || errResp.Response.StatusCode == http.StatusForbidden) {
 				log.Infof("  Owner %s not found as an organization (or access denied), trying as a user...", owner)
 				isOrg = false
 				userOpt = &github.RepositoryListByUserOptions{Type: "owner", ListOptions: github.ListOptions{PerPage: 100}}
-				repos, resp, err = client.getCachedListByUser(ctx, owner, userOpt) // Use client wrapper method
+				repos, resp, err = client.getCachedListByUser(ctx, owner, userOpt)
 			}
-			// Handle potential error from the user call as well
 			if err != nil {
 				log.Errf("Error listing repositories for %s: %v", owner, err)
-				continue // Skip this owner if listing fails
+				continue
 			}
 		}
 		currentPage := 1
@@ -132,19 +121,16 @@ func main() {
 				repoPath := fmt.Sprintf("%s/%s", repoOwnerLogin, repoName)
 				contentOwner := repoOwnerLogin
 
-				// Use client wrapper method
 				fileContent, _, _, errContent := client.getCachedGetContents(ctx, contentOwner, repoName, "go.mod", nil)
-
-				// Handle errors from GetContents (including cached non-found)
 				if errContent != nil {
-					if !isNotFoundError(errContent) { // Log API errors other than "not found"
+					if !isNotFoundError(errContent) {
 						log.Warnf("      Warn: Error checking go.mod for %s: %v", repoPath, errContent)
 					}
 					continue
 				}
-				if fileContent == nil { // No go.mod found
+				if fileContent == nil {
 					continue
-				}
+				} // No go.mod found
 
 				content, errDecode := fileContent.GetContent()
 				if errDecode != nil {
@@ -162,7 +148,6 @@ func main() {
 					continue
 				}
 
-				// Add the declared module path and direct dependencies to the set of all paths
 				allModulePaths[modulePath] = true
 				for _, req := range modFile.Require {
 					if !req.Indirect {
@@ -210,47 +195,25 @@ func main() {
 				// --- End Fetch Parent Info ---
 
 				// --- Store Module Info and Handle Collisions ---
-				currentInfo := &ModuleInfo{
-					Path:               modulePath,
-					RepoPath:           repoPath,
-					IsFork:             isFork,
-					OriginalModulePath: originalModulePath,
-					Owner:              owner,
-					OwnerIdx:           i,
-					Deps:               make(map[string]string),
-					Fetched:            true,
-					// TreatAsExternal:    false, // Field removed, logic handled differently now
-				}
-				// Populate currentInfo's dependencies from its own go.mod
+				currentInfo := &ModuleInfo{Path: modulePath, RepoPath: repoPath, IsFork: isFork, OriginalModulePath: originalModulePath, Owner: owner, OwnerIdx: i, Deps: make(map[string]string), Fetched: true /* TreatAsExternal removed */}
 				for _, req := range modFile.Require {
 					if !req.Indirect {
 						currentInfo.Deps[req.Mod.Path] = req.Mod.Version
 					}
 				}
 
-				// Add to the list of all scanned modules BEFORE handling collisions
-				// allScannedModules = append(allScannedModules, currentInfo) // Keep if needed later
-
-				// Check for collision in the main map (prioritizing non-forks)
 				existingInfo, exists := modulesFoundInOwners[modulePath]
-
 				if !exists {
-					// First time seeing this path, store current info.
 					log.LogVf("      Storing info for new module path '%s' from repo '%s'", modulePath, repoPath)
 					modulesFoundInOwners[modulePath] = currentInfo
 				} else {
-					// Collision detected! Apply prioritization.
-					log.LogVf("      Module path '%s' collision: Existing repo '%s' (IsFork: %t), Current repo '%s' (IsFork: %t)",
-						modulePath, existingInfo.RepoPath, existingInfo.IsFork, currentInfo.RepoPath, currentInfo.IsFork)
+					log.LogVf("      Module path '%s' collision: Existing repo '%s' (IsFork: %t), Current repo '%s' (IsFork: %t)", modulePath, existingInfo.RepoPath, existingInfo.IsFork, currentInfo.RepoPath, currentInfo.IsFork)
 					if !existingInfo.IsFork && currentInfo.IsFork {
-						// Existing is NON-FORK, current is FORK. Keep existing. Do nothing.
 						log.LogVf("        Keeping non-fork '%s', discarding fork '%s'", existingInfo.RepoPath, currentInfo.RepoPath)
 					} else if existingInfo.IsFork && !currentInfo.IsFork {
-						// Existing is FORK, current is NON-FORK. Replace existing with current.
 						log.LogVf("        Replacing fork '%s' with non-fork '%s'", existingInfo.RepoPath, currentInfo.RepoPath)
-						modulesFoundInOwners[modulePath] = currentInfo // Update map with non-fork info (including its deps)
+						modulesFoundInOwners[modulePath] = currentInfo
 					} else {
-						// Both are forks OR both are non-forks. Keep the first one encountered (existingInfo).
 						log.Warnf("        Collision between same types: Keeping first encountered ('%s').", existingInfo.RepoPath)
 					}
 				}
@@ -284,21 +247,18 @@ func main() {
 	} // End loop owners
 	// --- End Scan Owners ---
 
-	// --- Post-processing Step Removed ---
-	// The logic is now integrated into determineNodesToGraph and generateDotOutput/formatNodeForTopo
-
 	// --- Determine Nodes to Include in Graph ---
-	// Update the call to receive the new map
-	nodesToGraph, forksIncludedByDependency := determineNodesToGraph(modulesFoundInOwners, allModulePaths, noExt) // MODIFIED
+	// Use the RENAMED function determineNodesAndForkDeps
+	initialNodesToGraph, forkDependsOnAnyInternal := determineNodesAndForkDeps(modulesFoundInOwners, allModulePaths) // MODIFIED
 	// --- End Determine Nodes to Include in Graph ---
 
 	// --- Generate Output ---
 	if topoSort {
-		// Pass the new map to the topo sort function
-		performTopologicalSortAndPrint(modulesFoundInOwners, nodesToGraph, forksIncludedByDependency) // MODIFIED
+		// Pass the results AND the noExt flag
+		performTopologicalSortAndPrint(modulesFoundInOwners, initialNodesToGraph, forkDependsOnAnyInternal, noExt) // MODIFIED: Added noExt
 	} else {
-		// Pass the new map to the DOT generation function
-		generateDotOutput(modulesFoundInOwners, nodesToGraph, forksIncludedByDependency, noExt, left2Right) // MODIFIED
+		// Pass the results AND the noExt flag
+		generateDotOutput(modulesFoundInOwners, initialNodesToGraph, forkDependsOnAnyInternal, noExt, left2Right) // MODIFIED: Renamed map var
 	}
 	// --- End Generate Output ---
 }
