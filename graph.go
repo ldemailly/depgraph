@@ -299,7 +299,6 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 				if info.OriginalModulePath != "" {
 					outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
 				}
-				// Note: Removed the check '&& info.Path != info.OriginalModulePath'
 			}
 			fmt.Printf("%s  - %s\n", indent, outputStr)
 		}

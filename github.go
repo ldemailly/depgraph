@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	// "fmt" // Removed unused import
 	"net/http"
 	"strconv"
 
@@ -159,6 +160,34 @@ func (cw *ClientWrapper) getCachedGetContents(ctx context.Context, owner, repo, 
 	}
 
 	return fileContent, dirContent, resp, nil
+}
+
+// New: Cached wrapper for getting full repo details
+func (cw *ClientWrapper) getCachedGetRepo(ctx context.Context, owner, repo string) (*github.Repository, *github.Response, error) {
+	keyParts := []string{"GetRepo", owner, repo}
+	cacheKey := getCacheKey(cw.cacheDir, keyParts...)
+	var cachedData CachedRepoResponse
+	hit, readErr := readCache(cacheKey, &cachedData, cw.useCache)
+	if readErr != nil {
+		log.Errf("Error reading cache for %v: %v", keyParts, readErr)
+	}
+	if hit {
+		log.LogVf("Cache hit for GetRepo owner=%s repo=%s", owner, repo)
+		return cachedData.Repo, &github.Response{}, nil
+	} // Return minimal response on hit
+
+	log.Infof("Cache miss for GetRepo owner=%s repo=%s, calling API", owner, repo)
+	fullRepo, resp, apiErr := cw.client.Repositories.Get(ctx, owner, repo)
+	if apiErr != nil {
+		return nil, resp, apiErr
+	}
+
+	dataToCache := CachedRepoResponse{Repo: fullRepo}
+	writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
+	if writeErr != nil {
+		log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
+	}
+	return fullRepo, resp, nil
 }
 
 // --- End Cached GitHub API Methods ---

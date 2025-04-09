@@ -23,6 +23,11 @@ type CachedContentResponse struct {
 	FileContent *github.RepositoryContent
 }
 
+// New: Structure for caching full repository details
+type CachedRepoResponse struct {
+	Repo *github.Repository
+}
+
 // --- End Caching Data Structures ---
 
 // --- Cache Handling Functions ---
@@ -82,7 +87,7 @@ func readCache(key string, target interface{}, useCache bool) (bool, error) {
 	// Debug log (Verbose level) to check the 'Found' status after unmarshal
 	if contentCache, ok := target.(*CachedContentResponse); ok {
 		log.LogVf("Cache read successful for %s - Cached Found status: %v", key, contentCache.Found)
-	}
+	} // Add similar check for CachedRepoResponse if needed
 
 	return true, nil
 }

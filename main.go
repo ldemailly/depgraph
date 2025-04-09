@@ -121,12 +121,12 @@ func main() {
 				contentOwner := repoOwnerLogin
 
 				// Use client wrapper method
-				fileContent, _, _, errContent := client.getCachedGetContents(ctx, contentOwner, repoName, "go.mod", nil) // Renamed err_content
+				fileContent, _, _, errContent := client.getCachedGetContents(ctx, contentOwner, repoName, "go.mod", nil)
 
 				if errContent != nil {
 					log.Warnf("        Warn: Error checking go.mod for %s: %v", repoPath, errContent)
 					continue
-				} // Use renamed var
+				}
 				if fileContent == nil {
 					continue
 				} // Skip repo if go.mod not found
@@ -135,12 +135,12 @@ func main() {
 				if errDecode != nil {
 					log.Warnf("        Warn: Error decoding go.mod content for %s: %v", repoPath, errDecode)
 					continue
-				} // Renamed err_decode
+				}
 				modFile, errParse := modfile.Parse(repoPath+"/go.mod", []byte(content), nil)
 				if errParse != nil {
 					log.Warnf("        Warn: Error parsing go.mod for %s: %v", repoPath, errParse)
 					continue
-				} // Renamed err_parse
+				}
 				modulePath := modFile.Module.Mod.Path
 				if modulePath == "" {
 					log.Warnf("        Warn: Empty module path in go.mod for %s", repoPath)
@@ -149,33 +149,45 @@ func main() {
 
 				allModulePaths[modulePath] = true
 				originalModulePath := ""
-				if isFork && repo.GetParent() != nil {
-					parent := repo.GetParent()
-					parentOwner := parent.GetOwner().GetLogin()
-					parentRepo := parent.GetName()
-					parentRepoPath := fmt.Sprintf("%s/%s", parentOwner, parentRepo)
-					log.LogVf("        Fork detected. Checking parent %s for original module path", parentRepoPath) // Added LogVf
-					// Use client wrapper method
-					parentFileContent, _, _, errParentContent := client.getCachedGetContents(ctx, parentOwner, parentRepo, "go.mod", nil) // Renamed err_parent_content
-					if errParentContent != nil {
-						log.LogVf("            Parent go.mod check error for %s: %v", parentRepoPath, errParentContent) // Changed to LogVf
-					} else if parentFileContent != nil {
-						parentContent, errParentDecode := parentFileContent.GetContent() // Renamed err_parent_decode
-						if errParentDecode == nil {
-							parentModFile, errParentParse := modfile.Parse(parentRepoPath+"/go.mod", []byte(parentContent), nil) // Renamed err_parent_parse
-							if errParentParse == nil {
-								originalModulePath = parentModFile.Module.Mod.Path
-								log.LogVf("            Found parent module path: %s", originalModulePath) // Added LogVf
+				// --- Fetch Parent Info for Forks ---
+				var parentRepoInfo *github.Repository // To store parent info if fetched
+				if isFork {
+					log.LogVf("        Repo %s is a fork. Fetching full repo details...", repoPath)
+					fullRepo, _, errGet := client.getCachedGetRepo(ctx, repoOwnerLogin, repoName) // Fetch full details
+					if errGet != nil {
+						log.Warnf("        Warn: Failed to get full repo details for fork %s: %v", repoPath, errGet)
+					} else if fullRepo != nil && fullRepo.GetParent() != nil { // Check parent from full details
+						parentRepoInfo = fullRepo.GetParent() // Store parent info
+						parentOwner := parentRepoInfo.GetOwner().GetLogin()
+						parentRepoName := parentRepoInfo.GetName()
+						parentRepoPath := fmt.Sprintf("%s/%s", parentOwner, parentRepoName)
+						log.LogVf("        Fork parent is %s. Checking for original module path", parentRepoPath)
+
+						parentFileContent, _, _, errParentContent := client.getCachedGetContents(ctx, parentOwner, parentRepoName, "go.mod", nil)
+						if errParentContent != nil {
+							log.LogVf("            Parent go.mod check error for %s: %v", parentRepoPath, errParentContent)
+						} else if parentFileContent != nil {
+							parentContent, errParentDecode := parentFileContent.GetContent()
+							if errParentDecode == nil {
+								parentModFile, errParentParse := modfile.Parse(parentRepoPath+"/go.mod", []byte(parentContent), nil)
+								if errParentParse == nil {
+									originalModulePath = parentModFile.Module.Mod.Path
+									log.LogVf("            Found parent module path: %s", originalModulePath)
+								} else {
+									log.Warnf("            Warn: Error parsing parent go.mod for %s: %v", parentRepoPath, errParentParse)
+								}
 							} else {
-								log.Warnf("            Warn: Error parsing parent go.mod for %s: %v", parentRepoPath, errParentParse)
+								log.Warnf("            Warn: Error decoding parent go.mod content for %s: %v", parentRepoPath, errParentDecode)
 							}
 						} else {
-							log.Warnf("            Warn: Error decoding parent go.mod content for %s: %v", parentRepoPath, errParentDecode)
+							log.LogVf("            Parent go.mod not found for %s", parentRepoPath)
 						}
 					} else {
-						log.LogVf("            Parent go.mod not found for %s", parentRepoPath) // Added LogVf
+						log.LogVf("        Fork %s has no parent info in full details.", repoPath)
 					}
 				}
+				// --- End Fetch Parent Info ---
+
 				info := &ModuleInfo{Path: modulePath, RepoPath: repoPath, IsFork: isFork, OriginalModulePath: originalModulePath, Owner: owner, OwnerIdx: i, Deps: make(map[string]string), Fetched: true}
 				modulesFoundInOwners[modulePath] = info
 				for _, req := range modFile.Require {
@@ -192,14 +204,14 @@ func main() {
 			log.LogVf("    Fetching next page (%d) for %s", resp.NextPage, owner)
 			if isOrg {
 				orgOpt.Page = resp.NextPage
-				repos, resp, err = client.getCachedListByOrg(ctx, owner, orgOpt) // Use client wrapper method
+				repos, resp, err = client.getCachedListByOrg(ctx, owner, orgOpt)
 			} else {
 				if userOpt == nil {
 					log.Errf("    Error: userOpt is nil during pagination for user %s", owner)
 					break
 				}
 				userOpt.Page = resp.NextPage
-				repos, resp, err = client.getCachedListByUser(ctx, owner, userOpt) // Use client wrapper method
+				repos, resp, err = client.getCachedListByUser(ctx, owner, userOpt)
 			}
 			if err != nil {
 				log.Errf("Error fetching next page for %s: %v", owner, err)
@@ -211,16 +223,13 @@ func main() {
 	// --- End Scan Owners ---
 
 	// --- Determine Nodes to Include in Graph ---
-	// Call function from graph.go
 	nodesToGraph := determineNodesToGraph(modulesFoundInOwners, allModulePaths, noExt)
 	// --- End Determine Nodes to Include in Graph ---
 
 	// --- Generate Output ---
 	if topoSort {
-		// Call topological sort function from graph.go
 		performTopologicalSortAndPrint(modulesFoundInOwners, nodesToGraph)
 	} else {
-		// Call DOT generation function from graph.go
 		generateDotOutput(modulesFoundInOwners, nodesToGraph, noExt)
 	}
 	// --- End Generate Output ---
