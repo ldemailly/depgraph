@@ -9,5 +9,11 @@ mine:
 golang:
 	go run . -noext -left2right golang > dependencies_golang.dot
 	dot -Tsvg dependencies_golang.dot -o dependencies_golang.svg; open dependencies_golang.svg
+	dot -Tpng dependencies_golang.dot -o dependencies_golang.png; open dependencies_golang.png
+	go run . -topo-sort -noext golang
 
-.PHONY: regen mine golang
+import:
+	go run ./aisplit
+	git diff -w
+
+.PHONY: regen mine golang import

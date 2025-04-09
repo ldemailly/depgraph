@@ -104,9 +104,11 @@ func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInf
 }
 
 // isNodeDependedOn returns true if the given node is depended on by any other node
-func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) bool {
+// *within* the set of nodes currently considered to be in cycles.
+func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, currentNodesInCycles map[string]bool) bool {
 	for _, info := range modulesFoundInOwners {
-		if !nodesToGraph[info.Path] {
+		// Only check dependencies of nodes that are *also* in the current cycle set.
+		if !currentNodesInCycles[info.Path] {
 			continue
 		}
 		for dep := range info.Deps {
@@ -127,7 +129,7 @@ func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners ma
 		changed = false
 		nodesToRemove := make([]string, 0)
 		for node := range nodesInCycles {
-			if !isNodeDependedOn(node, modulesFoundInOwners, nodesToGraph) {
+			if !isNodeDependedOn(node, modulesFoundInOwners, nodesInCycles) { // Pass currentNodesInCycles
 				nodesToRemove = append(nodesToRemove, node)
 				changed = true
 			}
