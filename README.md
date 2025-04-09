@@ -1,6 +1,6 @@
 # Go Module Dependency Graph Generator (`depgraph`)
 
-This tool scans specified GitHub organizations or user accounts for public Go modules, parses their direct dependencies from `go.mod` files, and generates a dependency graph in DOT format. The DOT file can then be visualized using tools like Graphviz.
+This tool scans specified GitHub organizations or user accounts for public Go modules, parses their direct dependencies from `go.mod` files, and generates a dependency graph in DOT format or a topological sort order. The DOT file can then be visualized using tools like Graphviz.
 
 ## Features
 
@@ -8,10 +8,12 @@ This tool scans specified GitHub organizations or user accounts for public Go mo
 * Identifies public, non-fork, non-archived repositories containing a `go.mod` file at the root. Also processes forks found within those accounts.
 * Uses the GitHub API to fetch repository information and `go.mod` contents (with optional filesystem caching).
 * Parses direct dependencies (module path and required version) from `go.mod` files using `golang.org/x/mod/modfile`.
-* Generates a graph in DOT format suitable for visualization tools.
+* **Cycle Detection:** Detects dependency cycles using Kahn's algorithm on the reversed graph. It refines the detection to identify only the nodes truly part of the cycles.
+* Generates a graph in DOT format suitable for visualization tools, **highlighting cycles**.
+* Generates a topological sort order (leaves first), **grouping cyclic dependencies** into a dedicated level.
 * Distinguishes between internal modules (non-forks, included forks) and external dependencies using node colors.
-* Provides options to exclude external dependencies and manage the API cache.
-* Logs progress and warnings to stderr, keeping stdout clean for DOT output.
+* Provides options to exclude external dependencies, control graph layout, and manage the API cache.
+* Logs progress and warnings to stderr, keeping stdout clean for DOT or topological sort output.
 
 ## Prerequisites
 
@@ -33,29 +35,38 @@ This will download the source code, compile it, and place the `depgraph` executa
 
 1.  **Authenticate with GitHub:**
     The tool needs a GitHub token to interact with the API and avoid rate limits. Use the `gh` CLI to provide one via an environment variable:
-    ```bash
+    ```
     export GITHUB_TOKEN=$(gh auth token)
     ```
     *(Ensure you have run `gh auth login` previously)*
 
 2.  **Run the tool:**
-    Execute the `depgraph` command, optionally providing flags, followed by the names of the GitHub organizations or user accounts you want to scan. Redirect the standard output (`stdout`) to a `.dot` file. Progress and errors are printed to `stderr`.
-    ```bash
-    depgraph [flags] <owner1> [owner2]... > dependencies.dot
-    ```
-    *Example:*
-    ```bash
-    depgraph -noext -clear-cache fortio grol-io ldemailly > dependencies.dot
-    ```
+    Execute the `depgraph` command, optionally providing flags, followed by the names of the GitHub organizations or user accounts you want to scan.
+    * **For DOT output:** Redirect the standard output (`stdout`) to a `.dot` file.
+        ```
+        depgraph [flags] <owner1> [owner2]... > dependencies.dot
+        ```
+        *Example:*
+        ```
+        depgraph -noext -clear-cache fortio grol-io ldemailly > dependencies.dot
+        ```
+    * **For Topological Sort output:** Use the `-topo-sort` flag. Output is printed directly to `stdout`.
+        ```
+        depgraph -topo-sort [flags] <owner1> [owner2]...
+        ```
+        *Example:*
+        ```
+        depgraph -topo-sort -noext golang
+        ```
 
-3.  **Visualize the Graph (using Graphviz):**
+3.  **Visualize the Graph (using Graphviz, for DOT output):**
     Use the `dot` command (from Graphviz) to convert the generated `dependencies.dot` file into an image format like PNG or SVG.
     * **Generate PNG:**
-        ```bash
+        ```
         dot -Tpng dependencies.dot -o dependencies.png
         ```
     * **Generate SVG:**
-        ```bash
+        ```
         dot -Tsvg dependencies.dot -o dependencies.svg
         ```
     You can then open the generated image file.
@@ -63,27 +74,34 @@ This will download the source code, compile it, and place the `depgraph` executa
 ### Command-Line Flags
 
 * `-noext`: (Boolean, default `false`) If set, excludes external dependencies (modules not found in the specified owners) from the graph/output.
-* `-left2right`: (Boolean, default `false`) If set, generates the DOT graph with a left-to-right layout (`rankdir=LR`) instead of the default top-to-bottom layout (`rankdir=TB`).
-* `-topo-sort`: (Boolean, default `false`) If set, outputs the dependency order as text grouped by topological sort levels (leaves first) to standard output, instead of generating DOT graph output.
+* `-left2right`: (Boolean, default `false`) If set (and not using `-topo-sort`), generates the DOT graph with a left-to-right layout (`rankdir=LR`) instead of the default top-to-bottom layout (`rankdir=TB`).
+* `-topo-sort`: (Boolean, default `false`) If set, outputs the dependency order as text grouped by topological sort levels (leaves first) to standard output, instead of generating DOT graph output. **Cycles are grouped into a specific level.**
 * `-use-cache`: (Boolean, default `true`) Enables the use of a local filesystem cache for GitHub API calls to speed up subsequent runs. Cache is stored in the user's cache directory (e.g., `~/.cache/depgraph_cache`). Disable with `-use-cache=false`.
 * `-clear-cache`: (Boolean, default `false`) If set, removes the cache directory before running. Useful if you suspect the cache is stale.
 
-## Example
+## Example DOT Output (Visualized)
 
 Example graph generated by running the tool with my `fortio`, `grol-io`, and `ldemailly` accounts:
-```bash
+```
 depgraph  -left2right -noext fortio grol-io ldemailly > dependencies.dot
 dot -Tsvg dependencies.dot -o dependencies.svg; open dependencies.svg
 ```
 
-![Dependency Graph](dependencies.svg)
+*(Image assumes no cycles were present in this specific run)*
 
-There is a new `-topo-sort` that indicates in which order can modules be updated in order to only have to do a single pass and which can be do in parallel (indicated by being at the same level) - that was the main goal for this project (next up drive dependabot from that and autorelease/tag maybe)
+**Cycle Highlighting in DOT:**
+* Nodes identified as part of a dependency cycle will have a **red border**.
+* Edges *between* two nodes that are both part of a cycle will be drawn in **red** and slightly thicker.
 
-```bash
+## Example Topological Sort Output
+
+The `-topo-sort` flag indicates the order in which modules can be updated/built, processing dependencies first. Modules at the same level can potentially be processed in parallel.
+
+```
 depgraph -noext -topo-sort fortio grol-io ldemailly
 ```
-Outputs
+
+Outputs (example without cycles):
 ```
 Topological Sort Levels (Leaves First):
 Level 0:
@@ -141,10 +159,17 @@ Level 0:
               - github.com/ldemailly/gohook_sample
 ```
 
-## Graph Legend
+**Cycle Handling in Topological Sort:**
+* If cycles are detected, the sort proceeds through the acyclic levels first.
+* All nodes identified as being part of cycles are then grouped together into a single level, labeled like `Level N (Cycles):`.
+    * Within this level, simple bidirectional dependencies (A <-> B) are printed on a single line like `- A <-> B`.
+* Subsequent levels contain nodes that depend on the preceding acyclic levels and/or the cycle level.
+
+## Graph Legend (DOT Output)
 
 * **Nodes:** Represent Go modules.
 * **Edges:** Represent direct dependencies (from `require` directives in `go.mod`). The label shows the required version.
+* **Cycle Highlighting:** Nodes in cycles have red borders; edges between cycle nodes are red.
 
 ### Node Colors
 
@@ -159,7 +184,10 @@ Node colors indicate the origin and type of the module:
 ### Node Labels
 
 * **Non-Fork / External:** Labeled with the Go module path declared in `go.mod` (e.g., `fortio.org/log`, `golang.org/x/net`).
-* **Included Fork:** Labeled primarily with the repository path where the fork was found (e.g., `fortio/term`). If the module path declared inside the fork's `go.mod` differs from the module path declared in the original (parent) repository's `go.mod`, the fork's declared module path is added on a second line, like: `fortio/term\n(module: term.fortio.org)`
+* **Included Fork:** Labeled to clearly indicate it's a fork:
+    * If the fork's declared module path matches the parent's: `repo/path (fork of original/module/path)`
+    * If the fork's declared module path differs: `repo/path (fork/declared/path fork of original/module/path)`
+    * If the parent's module path couldn't be determined: `repo/path (fork)`
 
 ## Development Setup (Building from Source)
 
@@ -174,24 +202,25 @@ If you want to modify the code or contribute:
 2.  **Build/Run:**
     ```bash
     # Run directly (uses the module context)
-    go run . <owner1> [owner2]... > dependencies.dot
+    go run . [flags] <owner1> [owner2]...
 
     # Or build the binary
     go build
-    ./depgraph <owner1> [owner2]... > dependencies.dot
+    ./depgraph [flags] <owner1> [owner2]...
     ```
 
 ## How it Works
 
-1.  **Initialization:** Parses flags (`-noext`, `-use-cache`, `-clear-cache`, `-topo-sort`), sets up GitHub client, initializes or clears the cache system based on flags.
-2.  **Repository Listing:** For each specified owner (org or user), lists public repositories using the appropriate GitHub API (trying org first, then user on 404). Uses caching if enabled.
-3.  **Filtering & `go.mod` Fetching:** For each non-archived repository (including forks), attempts to fetch the content of the `go.mod` file using the GitHub API (with caching).
-4.  **Parent `go.mod` Fetching (Forks):** If a repository is a fork, attempts to fetch the full repository details (cached) to get the parent repository info. Then attempts to fetch the `go.mod` from the parent repository to get the original module path (used for labeling). This call is also cached.
-5.  **Parsing:** Parses the fetched `go.mod` files to extract the module path and direct dependencies. Stores module info (path, repo path, fork status, original path, owner, dependencies).
-6.  **Node Inclusion Logic:** Determines the final set of nodes (`nodesToGraph`) to include based on fetched data and the `-noext` flag. Includes non-forks, qualifying forks (referenced by or depending on non-forks), and optionally external dependencies.
-7.  **Output Generation:**
-    * If `-topo-sort` is **true**: Performs a topological sort (Kahn's algorithm on the reversed dependency graph of included nodes) to determine update levels (leaves first). Prints the levels and nodes (custom formatting for forks) to standard output. Warns on standard error if cycles are detected.
-    * If `-topo-sort` is **false** (default): Generates the dependency graph in DOT format and prints it to standard output. Assigns node colors (based on owner index and fork status) and labels (custom formatting for forks). Edges are labeled with versions.
+1.  **Initialization:** Parses flags, sets up GitHub client, initializes or clears the cache.
+2.  **Repository Listing:** Lists public repositories for each owner (org/user), using caching.
+3.  **Filtering & `go.mod` Fetching:** Fetches `go.mod` for non-archived repos (including forks), using caching.
+4.  **Parent `go.mod` Fetching (Forks):** Fetches parent repo details and `go.mod` (cached) to find the original module path for better fork labeling.
+5.  **Parsing:** Parses `go.mod` files for module path and direct dependencies.
+6.  **Node Inclusion Logic:** Determines the final set of nodes (`nodesToGraph`) based on fetched data and the `-noext` flag (non-forks, qualifying forks, optional external).
+7.  **Cycle Detection & Refinement:** Builds a reverse dependency graph and uses Kahn's algorithm to find nodes with remaining dependencies (potential cycles). Iteratively refines this set to include only nodes that are depended upon by other nodes within the set, identifying the core cycle members.
+8.  **Output Generation:**
+    * If `-topo-sort` is **true**: Performs Kahn's algorithm on the reversed graph. Prints acyclic levels first. Groups all refined cycle nodes into a single `Level N (Cycles):`. Continues Kahn's for remaining nodes depending on previous levels or the cycle level.
+    * If `-topo-sort` is **false** (default): Generates DOT output. Nodes are colored by origin/type. Nodes in refined cycles get red borders. Edges between cycle nodes are red and thicker.
 
 ## Future Ideas
 
@@ -205,6 +234,4 @@ If you want to modify the code or contribute:
 
 All the code in 0.1.0 is generated through many iterations/prompts of Gemini 2.5 pro
 
-The driving and idea and need and "QA"ing is my own (ldemailly) but I haven't (yet) reviewed the code outside of pointing out errors etc
-
-For code quality and structure see my other repos (in fortio/)
+The driving and idea and need and "QA"ing is my own (ldemailly)
