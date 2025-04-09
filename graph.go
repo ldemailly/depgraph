@@ -13,11 +13,95 @@ var (
 	orgNonForkColors = []string{"lightblue", "lightgreen", "lightsalmon", "lightgoldenrodyellow", "lightpink"}
 	orgForkColors    = []string{"steelblue", "darkseagreen", "coral", "darkkhaki", "mediumvioletred"}
 	externalColor    = "lightgrey"
+	cycleColor       = "red" // Color for node border in cycles
 )
 
 // --- End Color Palettes ---
 
 // --- Graph Generation Logic ---
+
+// buildReverseGraphAndDetectCycles builds the reversed graph, runs Kahn's algorithm
+// to detect cycles, logs warnings, and returns the set of nodes likely involved in cycles.
+// Returns: map[nodePath]bool indicating nodes in cycles.
+func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) map[string]bool {
+	reverseAdj := make(map[string][]string)
+	inDegree := make(map[string]int)
+	nodesInSort := []string{}
+
+	// Initialize in-degrees and identify nodes for sorting
+	for node := range nodesToGraph {
+		inDegree[node] = 0
+		nodesInSort = append(nodesInSort, node)
+	}
+
+	// Build reversed adjacency list and calculate in-degrees
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] {
+			continue
+		}
+		if _, exists := reverseAdj[sourceMod]; !exists {
+			reverseAdj[sourceMod] = []string{}
+		}
+		for dep := range info.Deps {
+			if nodesToGraph[dep] {
+				if _, exists := reverseAdj[dep]; !exists {
+					reverseAdj[dep] = []string{}
+				}
+				reverseAdj[dep] = append(reverseAdj[dep], sourceMod)
+				inDegree[sourceMod]++
+			}
+		}
+	}
+
+	// Initialize queue with nodes having in-degree 0
+	queue := []string{}
+	for _, node := range nodesInSort {
+		if inDegree[node] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	sort.Strings(queue)
+
+	processedCount := 0
+	// Process the queue (Kahn's algorithm)
+	for len(queue) > 0 {
+		currentLevelSize := len(queue)
+		nextQueue := []string{}
+		for i := 0; i < currentLevelSize; i++ {
+			u := queue[i]
+			processedCount++
+			neighbors := reverseAdj[u]
+			sort.Strings(neighbors)
+			for _, v := range neighbors {
+				inDegree[v]--
+				if inDegree[v] == 0 {
+					nextQueue = append(nextQueue, v)
+				}
+			}
+		}
+		sort.Strings(nextQueue)
+		queue = nextQueue
+	}
+
+	// Identify nodes likely in cycles (those with remaining in-degree > 0)
+	nodesInCycles := make(map[string]bool) // Changed return type to map
+	if processedCount < len(nodesInSort) {
+		log.Warnf("Cycle detected in dependencies! Processed %d nodes, expected %d.", processedCount, len(nodesInSort))
+		log.Warnf("Nodes likely involved in cycles (remaining in-degree > 0):")
+		remainingNodes := []string{}
+		for _, node := range nodesInSort {
+			if inDegree[node] > 0 {
+				remainingNodes = append(remainingNodes, node)
+				nodesInCycles[node] = true // Add to the map for return
+			}
+		}
+		sort.Strings(remainingNodes)
+		for _, node := range remainingNodes {
+			log.Warnf("  - %s (remaining reversed in-degree: %d)", node, inDegree[node])
+		}
+	}
+	return nodesInCycles // Return the map of nodes in cycles
+}
 
 // determineNodesToGraph calculates the set of nodes to include in the final graph
 func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool) map[string]bool {
@@ -97,6 +181,11 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 
 // generateDotOutput generates the DOT graph representation and prints it to stdout
 func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
+	// --- Detect Cycles to Highlight Nodes ---
+	// Run the cycle detection part of the topo sort
+	nodesInCyclesSet := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph) // Correctly gets map[string]bool
+	// --- End Detect Cycles ---
+
 	// --- Generate DOT Output ---
 	fmt.Println("digraph dependencies {")
 	// Set rankdir based on flag
@@ -105,6 +194,7 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 		rankDir = "LR"
 	}
 	fmt.Printf("  rankdir=\"%s\";\n", rankDir) // Use flag value
+	// Define default node style, potentially overridden later for cycle nodes
 	fmt.Println("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];")
 	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];")
 
@@ -119,6 +209,8 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 	for _, nodePath := range sortedNodes {
 		label := nodePath
 		color := externalColor
+		nodeAttrs := []string{} // Store attributes like label, fillcolor, color
+
 		// Get info about the last scanned repo declaring this module path
 		info, foundInScanned := modulesFoundInOwners[nodePath]
 
@@ -134,18 +226,15 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				ownerIdx := info.OwnerIdx
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
 				// --- Updated Fork Labeling Logic ---
-				// Add descriptive suffix if original path was found
+				label = info.RepoPath // Primary label is repo path for qualified forks
 				if info.OriginalModulePath != "" {
 					if info.Path == info.OriginalModulePath {
 						// Path matches original: RepoPath\n(fork of OriginalPath)
-						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath) // Use RepoPath
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath) // Use \n
 					} else {
 						// Path differs: DeclaredPath\n(fork of OriginalPath)
 						label = fmt.Sprintf("%s\\n(fork of %s)", info.Path, info.OriginalModulePath) // Use Declared Path
 					}
-				} else {
-					// Original path not found, just use RepoPath
-					label = info.RepoPath
 				}
 				// --- End Updated Fork Labeling Logic ---
 			}
@@ -154,8 +243,20 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 		} // Skip external node definition if -noext
 		// Else: External node, color is externalColor, label is nodePath.
 
+		// Add standard attributes
 		escapedLabel := strings.ReplaceAll(label, "\"", "\\\"")
-		fmt.Printf("  \"%s\" [label=\"%s\", fillcolor=\"%s\"];\n", nodePath, escapedLabel, color)
+		nodeAttrs = append(nodeAttrs, fmt.Sprintf("label=\"%s\"", escapedLabel))
+		nodeAttrs = append(nodeAttrs, fmt.Sprintf("fillcolor=\"%s\"", color))
+
+		// Add cycle highlighting if node is in a cycle
+		if nodesInCyclesSet[nodePath] { // Check against the map
+			log.LogVf("Highlighting cycle node: %s", nodePath)
+			nodeAttrs = append(nodeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Set border color
+			nodeAttrs = append(nodeAttrs, "penwidth=2")                            // Make border thicker
+		}
+
+		// Print node definition with all attributes
+		fmt.Printf("  \"%s\" [%s];\n", nodePath, strings.Join(nodeAttrs, ", "))
 	}
 
 	fmt.Println("\n  // Edges (Dependencies)")
@@ -200,128 +301,120 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 // performTopologicalSortAndPrint performs Kahn's algorithm on the REVERSE graph
 // to print levels starting with leaves (nodes with no outgoing edges in original graph).
 func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
-	reverseAdj := make(map[string][]string) // Adjacency list for the *reversed* graph
-	inDegree := make(map[string]int)        // In-degree based on the *reversed* graph
-	nodesInSort := []string{}               // Keep track of nodes actually part of the sort
+	// Build reverse graph and get nodes in cycles (warnings printed inside)
+	// Corrected: Use blank identifier for the first return value (inDegree map)
+	nodesInCycles := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
 
-	log.Infof("Building reversed graph for topological sort...")
-	// Initialize in-degrees and identify nodes for sorting
+	// Re-build reverse graph and in-degrees again for actual level processing
+	reverseAdj := make(map[string][]string)
+	inDegree := make(map[string]int) // Re-initialize
+	nodesInSort := []string{}
+
 	for node := range nodesToGraph {
-		inDegree[node] = 0 // Initialize in-degree for all nodes in the graph
+		inDegree[node] = 0
 		nodesInSort = append(nodesInSort, node)
 	}
-
-	// Build *reversed* adjacency list and calculate in-degrees based *only* on edges
-	// between nodes included in the final graph (`nodesToGraph`)
-	// and originating from modules we scanned (`modulesFoundInOwners`).
 	for sourceMod, info := range modulesFoundInOwners {
-		if !nodesToGraph[sourceMod] { // Skip sources not in the final graph
+		if !nodesToGraph[sourceMod] {
 			continue
 		}
-		// Ensure sourceMod exists in reverseAdj map even if it has no incoming edges (in reversed graph)
 		if _, exists := reverseAdj[sourceMod]; !exists {
 			reverseAdj[sourceMod] = []string{}
 		}
-
 		for dep := range info.Deps {
-			if nodesToGraph[dep] { // Only consider edges pointing to included nodes
-				// Add edge from dep -> sourceMod in the reversed graph
-				log.LogVf("  Reverse TopoSort Edge: %s -> %s", dep, sourceMod)
-				// Ensure dep exists in reverseAdj map
+			if nodesToGraph[dep] {
 				if _, exists := reverseAdj[dep]; !exists {
 					reverseAdj[dep] = []string{}
 				}
 				reverseAdj[dep] = append(reverseAdj[dep], sourceMod)
-				inDegree[sourceMod]++ // Increment in-degree of the *source* in the reversed graph
+				inDegree[sourceMod]++
 			}
 		}
 	}
 
-	// Initialize queue with nodes having in-degree 0 (in the reversed graph)
-	// These are the leaves of the original graph.
+	// Initialize queue with nodes having in-degree 0
 	queue := []string{}
 	for _, node := range nodesInSort {
 		if inDegree[node] == 0 {
 			queue = append(queue, node)
 		}
 	}
-	sort.Strings(queue) // Sort initial queue for deterministic order
+	sort.Strings(queue)
 
 	resultLevels := [][]string{}
 	processedCount := 0
+	processedNodes := make(map[string]bool) // Track processed nodes
 
 	log.Infof("Starting topological sort (leaves first)...")
 	for len(queue) > 0 {
 		currentLevelSize := len(queue)
 		currentLevelNodes := make([]string, 0, currentLevelSize)
-		nextQueue := []string{} // Prepare next level's queue candidates
-
+		nextQueue := []string{}
 		log.LogVf("  Processing Level %d with %d nodes: %v", len(resultLevels), currentLevelSize, queue)
-
-		// Process nodes at the current level
 		for i := 0; i < currentLevelSize; i++ {
-			u := queue[i] // u is a node with in-degree 0 in the reversed graph (a leaf in original)
+			u := queue[i]
 			currentLevelNodes = append(currentLevelNodes, u)
 			processedCount++
-
-			// For each neighbor v of u in the *reversed* graph (i.e., nodes that depended on u in original)
-			neighbors := reverseAdj[u] // Get neighbors from reversed adjacency list
-			sort.Strings(neighbors)    // Process neighbors alphabetically for determinism
+			processedNodes[u] = true
+			neighbors := reverseAdj[u]
+			sort.Strings(neighbors)
 			for _, v := range neighbors {
-				inDegree[v]-- // Decrement in-degree of node v (which depended on u)
+				inDegree[v]--
 				if inDegree[v] == 0 {
-					nextQueue = append(nextQueue, v) // Add v to candidates for next level
+					nextQueue = append(nextQueue, v)
 				}
 			}
 		}
-
-		// Add the processed level to results (nodes are sorted alphabetically)
 		resultLevels = append(resultLevels, currentLevelNodes)
-
-		// Prepare and sort the queue for the next level
 		sort.Strings(nextQueue)
 		queue = nextQueue
 	}
 
-	// Check for cycles (same logic applies to reversed graph)
-	if processedCount < len(nodesInSort) {
-		log.Warnf("Cycle detected in dependencies! Processed %d nodes, expected %d.", processedCount, len(nodesInSort))
-		log.Warnf("Nodes likely involved in cycles (in-degree > 0 after sort on reversed graph):")
-		remainingNodes := []string{}
-		for _, node := range nodesInSort {
-			if inDegree[node] > 0 {
-				remainingNodes = append(remainingNodes, node)
-			}
-		}
-		sort.Strings(remainingNodes)
-		for _, node := range remainingNodes {
-			log.Warnf("  - %s (remaining reversed in-degree: %d)", node, inDegree[node])
-		}
-	}
-
-	// Print the sorted levels (Level 0 now contains original leaves)
+	// Print the sorted levels
 	fmt.Println("Topological Sort Levels (Leaves First):")
 	for i, level := range resultLevels {
 		indent := strings.Repeat("  ", i)
 		fmt.Printf("%sLevel %d:\n", indent, i)
-		for _, nodePath := range level { // nodePath is the module path
-			outputStr := nodePath // Default output is module path
-			// Look up info to customize output for forks
+		for _, nodePath := range level {
+			outputStr := nodePath
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
-				// Use RepoPath as the primary identifier in text output for forks
 				outputStr = info.RepoPath
-				// Append original module path if it was found
 				if info.OriginalModulePath != "" {
 					if info.Path == info.OriginalModulePath {
-						// Path matches original: RepoPath (fork of OriginalPath) - single line for text
 						outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
 					} else {
-						// Path differs: RepoPath (DeclaredPath fork of OriginalPath) - single line for text
 						outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
 					}
 				}
 			}
 			fmt.Printf("%s  - %s\n", indent, outputStr)
+		}
+	}
+
+	// Print nodes involved in cycles (if any)
+	// Check if cycles were detected by comparing processed count
+	if processedCount < len(nodesInSort) {
+		fmt.Println("\nCyclic Dependencies (cannot be ordered):")
+		remainingNodes := []string{}
+		// Iterate through the map returned by the initial cycle check run
+		for node := range nodesInCycles { // Use the map returned earlier
+			remainingNodes = append(remainingNodes, node)
+		}
+		sort.Strings(remainingNodes) // Sort cyclic nodes alphabetically
+		for _, nodePath := range remainingNodes {
+			// Format output similar to leveled output
+			outputStr := nodePath
+			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
+				outputStr = info.RepoPath
+				if info.OriginalModulePath != "" {
+					if info.Path == info.OriginalModulePath {
+						outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
+					} else {
+						outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
+					}
+				}
+			}
+			fmt.Printf("  - %s\n", outputStr) // Print with standard indent
 		}
 	}
 }
