@@ -306,11 +306,36 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 
 // --- Topological Sort Logic ---
 
+// Helper function to format node output for topo sort
+func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleInfo) string {
+	// Default output is module path
+	outputStr := nodePath
+	// Look up info to customize output for forks
+	if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
+		outputStr = info.RepoPath // Use repo path for forks
+		// Append original module path if it was found
+		if info.OriginalModulePath != "" {
+			if info.Path == info.OriginalModulePath {
+				// Path matches original: RepoPath (fork of OriginalPath)
+				outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
+			} else {
+				// Path differs: RepoPath (DeclaredPath fork of OriginalPath)
+				outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
+			}
+		}
+	}
+	return outputStr
+}
+
 // performTopologicalSortAndPrint performs Kahn's algorithm on the REVERSE graph
 // to print levels starting with leaves (nodes with no outgoing edges in original graph).
+// It also attempts to group simple A<->B cycles on the same line.
 func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
-	// Build forward adjacency list needed for bidirectional check marker
+	// Build forward adjacency list needed for bidirectional check
 	adj := make(map[string]map[string]bool) // adj[source][dest] = true
+	bidirPairs := make(map[string]string)   // Store A -> B if A <-> B and A < B
+	isBidirNode := make(map[string]bool)    // Mark nodes involved in any A<->B pair
+
 	for sourceMod, info := range modulesFoundInOwners {
 		if !nodesToGraph[sourceMod] {
 			continue
@@ -321,12 +346,27 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		for dep := range info.Deps {
 			if nodesToGraph[dep] {
 				adj[sourceMod][dep] = true
+				// Check for bidirectional link
+				if otherInfo, ok := modulesFoundInOwners[dep]; ok && nodesToGraph[otherInfo.Path] {
+					for otherDep := range otherInfo.Deps {
+						if otherDep == sourceMod { // Found B -> A
+							isBidirNode[sourceMod] = true
+							isBidirNode[dep] = true
+							// Store pair consistently (e.g., always store A->B where A < B)
+							if sourceMod < dep {
+								bidirPairs[sourceMod] = dep
+							} else {
+								bidirPairs[dep] = sourceMod
+							}
+							break // Found reverse link, no need to check further deps of B
+						}
+					}
+				}
 			}
 		}
 	}
 
 	// Build reverse graph and get nodes in cycles (warnings printed inside)
-	// Corrected: Assign return value to variable to use later
 	nodesInCycles := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
 
 	// Re-build reverse graph and in-degrees again for actual level processing
@@ -394,41 +434,48 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		queue = nextQueue
 	}
 
-	// Print the sorted levels
+	// Print the sorted levels, attempting to combine A<->B pairs
 	fmt.Println("Topological Sort Levels (Leaves First):")
+	processedForOutput := make(map[string]bool) // Track nodes already printed in combined format
+
 	for i, level := range resultLevels {
 		indent := strings.Repeat("  ", i)
 		fmt.Printf("%sLevel %d:\n", indent, i)
-		for _, nodePath := range level {
-			outputStr := nodePath
-			marker := "" // Marker for bidirectional dependency
+		levelSet := make(map[string]bool)
+		for _, node := range level {
+			levelSet[node] = true
+		} // For quick lookup
 
-			// Check for bidirectional dependency for marker
-			isBidir := false
-			if info, found := modulesFoundInOwners[nodePath]; found {
-				for depPath := range info.Deps {
-					if nodesToGraph[depPath] && adj[depPath] != nil && adj[depPath][nodePath] {
-						isBidir = true
-						break
-					}
-				}
-			}
-			if isBidir {
-				marker = " (*)"
-			} // Add marker if bidirectional found
+		// Sort level nodes for consistent processing order
+		sortedLevelNodes := make([]string, len(level))
+		copy(sortedLevelNodes, level)
+		sort.Strings(sortedLevelNodes)
 
-			// Format fork info
-			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
-				outputStr = info.RepoPath
-				if info.OriginalModulePath != "" {
-					if info.Path == info.OriginalModulePath {
-						outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
-					} else {
-						outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
-					}
-				}
+		for _, nodePath := range sortedLevelNodes {
+			if processedForOutput[nodePath] {
+				continue
+			} // Skip if already printed as part of a pair
+
+			partner, isPairStart := bidirPairs[nodePath] // Is nodePath the 'A' in an A<->B pair (where A<B)?
+			// Removed unused isLoneBidir variable
+
+			if isPairStart && levelSet[partner] { // Is it A in A<->B and B is also in this level?
+				// Print combined format
+				formattedA := formatNodeForTopo(nodePath, modulesFoundInOwners) // No marker needed here
+				formattedB := formatNodeForTopo(partner, modulesFoundInOwners)  // No marker needed here
+				fmt.Printf("%s  - %s <-> %s\n", indent, formattedA, formattedB)
+				processedForOutput[nodePath] = true
+				processedForOutput[partner] = true
+			} else {
+				// Print individually
+				marker := ""
+				if isBidirNode[nodePath] {
+					marker = " (*)"
+				} // Mark if part of any bidir pair, even if partner not in level
+				outputStr := formatNodeForTopo(nodePath, modulesFoundInOwners) // Format fork info
+				fmt.Printf("%s  - %s%s\n", indent, outputStr, marker)          // Append marker
+				processedForOutput[nodePath] = true
 			}
-			fmt.Printf("%s  - %s%s\n", indent, outputStr, marker) // Append marker
 		}
 	}
 
@@ -436,26 +483,35 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 	if processedCount < len(nodesInSort) {
 		fmt.Println("\nCyclic Dependencies (cannot be ordered):")
 		remainingNodes := []string{}
-		for node := range nodesInCycles { // Use the map returned earlier
+		for node := range nodesInCycles {
 			remainingNodes = append(remainingNodes, node)
 		}
 		sort.Strings(remainingNodes) // Sort cyclic nodes alphabetically
-		for _, nodePath := range remainingNodes {
-			outputStr := nodePath
-			marker := " (*)" // Mark all cyclic nodes
 
-			// Format fork info for cyclic nodes as well
-			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
-				outputStr = info.RepoPath
-				if info.OriginalModulePath != "" {
-					if info.Path == info.OriginalModulePath {
-						outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
-					} else {
-						outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
-					}
-				}
+		processedForOutput := make(map[string]bool) // Track nodes already printed in combined format within cycles
+
+		for _, nodePath := range remainingNodes {
+			if processedForOutput[nodePath] {
+				continue
+			} // Skip if already printed as part of a pair
+
+			partner, isPairStart := bidirPairs[nodePath]
+			_, partnerInCycle := nodesInCycles[partner] // Check if partner is also in the cycle list
+
+			if isPairStart && partnerInCycle { // Is it A in A<->B and B is also in the cycle list?
+				// Print combined format
+				formattedA := formatNodeForTopo(nodePath, modulesFoundInOwners)
+				formattedB := formatNodeForTopo(partner, modulesFoundInOwners)
+				fmt.Printf("  - %s <-> %s\n", formattedA, formattedB)
+				processedForOutput[nodePath] = true
+				processedForOutput[partner] = true
+			} else {
+				// Print individually
+				marker := " (*)" // Mark all cyclic nodes
+				outputStr := formatNodeForTopo(nodePath, modulesFoundInOwners)
+				fmt.Printf("  - %s%s\n", outputStr, marker) // Print with standard indent and marker
+				processedForOutput[nodePath] = true
 			}
-			fmt.Printf("  - %s%s\n", outputStr, marker) // Print with standard indent and marker
 		}
 	}
 }
