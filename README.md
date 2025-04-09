@@ -92,8 +92,8 @@ Level 0:
   - fortio.org/progressbar
   - fortio.org/safecast
   - fortio.org/struct2env
-  - fortio/term (fork of golang.org/x/term)
-  - fortio/testscript (fork of github.com/rogpeppe/go-internal)
+  - fortio/term (fortio.org/term fork of golang.org/x/term)
+  - fortio/testscript (fortio.org/testscript fork of github.com/rogpeppe/go-internal)
   - fortio.org/version
   - ldemailly/discordgo (fork of github.com/bwmarrin/discordgo)
   - github.com/fortio/h2demo
@@ -208,4 +208,3 @@ All the code in 0.1.0 is generated through many iterations/prompts of Gemini 2.5
 The driving and idea and need and "QA"ing is my own (ldemailly) but I haven't (yet) reviewed the code outside of pointing out errors etc
 
 For code quality and structure see my other repos (in fortio/)
-

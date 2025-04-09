@@ -173,8 +173,8 @@ func (cw *ClientWrapper) getCachedGetRepo(ctx context.Context, owner, repo strin
 	}
 	if hit {
 		log.LogVf("Cache hit for GetRepo owner=%s repo=%s", owner, repo)
-		return cachedData.Repo, &github.Response{}, nil
-	} // Return minimal response on hit
+		return cachedData.Repo, &github.Response{}, nil // Return minimal response on hit
+	}
 
 	log.Infof("Cache miss for GetRepo owner=%s repo=%s, calling API", owner, repo)
 	fullRepo, resp, apiErr := cw.client.Repositories.Get(ctx, owner, repo)

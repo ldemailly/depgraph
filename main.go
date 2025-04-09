@@ -36,7 +36,7 @@ func main() {
 	noExt := *noExtFlag
 	useCache := *useCacheFlag     // Local variable, passed down
 	topoSort := *topoSortFlag     // Read topo-sort flag
-	left2Right := *left2RightFlag // Read left2right flag
+	left2Right := *left2RightFlag // Read left2Right flag
 
 	// Initialize or clear cache
 	cacheDir, err := initCache()
@@ -95,7 +95,7 @@ func main() {
 		repos, resp, err = client.getCachedListByOrg(ctx, owner, orgOpt)
 		if err != nil {
 			if isNotFoundError(err) {
-				log.Infof("    Owner %s not found as an organization, trying as a user...", owner)
+				log.Infof("  Owner %s not found as an organization, trying as a user...", owner)
 				isOrg = false
 				userOpt = &github.RepositoryListByUserOptions{Type: "owner", ListOptions: github.ListOptions{PerPage: 100}}
 				repos, resp, err = client.getCachedListByUser(ctx, owner, userOpt) // Use client wrapper method
@@ -126,7 +126,7 @@ func main() {
 				fileContent, _, _, errContent := client.getCachedGetContents(ctx, contentOwner, repoName, "go.mod", nil)
 
 				if errContent != nil {
-					log.Warnf("        Warn: Error checking go.mod for %s: %v", repoPath, errContent)
+					log.Warnf("      Warn: Error checking go.mod for %s: %v", repoPath, errContent)
 					continue
 				}
 				if fileContent == nil {
@@ -135,17 +135,17 @@ func main() {
 
 				content, errDecode := fileContent.GetContent()
 				if errDecode != nil {
-					log.Warnf("        Warn: Error decoding go.mod content for %s: %v", repoPath, errDecode)
+					log.Warnf("      Warn: Error decoding go.mod content for %s: %v", repoPath, errDecode)
 					continue
 				}
 				modFile, errParse := modfile.Parse(repoPath+"/go.mod", []byte(content), nil)
 				if errParse != nil {
-					log.Warnf("        Warn: Error parsing go.mod for %s: %v", repoPath, errParse)
+					log.Warnf("      Warn: Error parsing go.mod for %s: %v", repoPath, errParse)
 					continue
 				}
 				modulePath := modFile.Module.Mod.Path
 				if modulePath == "" {
-					log.Warnf("        Warn: Empty module path in go.mod for %s", repoPath)
+					log.Warnf("      Warn: Empty module path in go.mod for %s", repoPath)
 					continue
 				}
 
@@ -154,38 +154,38 @@ func main() {
 				// --- Fetch Parent Info for Forks ---
 				var parentRepoInfo *github.Repository // To store parent info if fetched
 				if isFork {
-					log.LogVf("        Repo %s is a fork. Fetching full repo details...", repoPath)
+					log.LogVf("      Repo %s is a fork. Fetching full repo details...", repoPath)
 					fullRepo, _, errGet := client.getCachedGetRepo(ctx, repoOwnerLogin, repoName) // Fetch full details
 					if errGet != nil {
-						log.Warnf("        Warn: Failed to get full repo details for fork %s: %v", repoPath, errGet)
+						log.Warnf("      Warn: Failed to get full repo details for fork %s: %v", repoPath, errGet)
 					} else if fullRepo != nil && fullRepo.GetParent() != nil { // Check parent from full details
 						parentRepoInfo = fullRepo.GetParent() // Store parent info
 						parentOwner := parentRepoInfo.GetOwner().GetLogin()
 						parentRepoName := parentRepoInfo.GetName()
 						parentRepoPath := fmt.Sprintf("%s/%s", parentOwner, parentRepoName)
-						log.LogVf("        Fork parent is %s. Checking for original module path", parentRepoPath)
+						log.LogVf("      Fork parent is %s. Checking for original module path", parentRepoPath)
 
 						parentFileContent, _, _, errParentContent := client.getCachedGetContents(ctx, parentOwner, parentRepoName, "go.mod", nil)
 						if errParentContent != nil {
-							log.LogVf("            Parent go.mod check error for %s: %v", parentRepoPath, errParentContent)
+							log.LogVf("        Parent go.mod check error for %s: %v", parentRepoPath, errParentContent)
 						} else if parentFileContent != nil {
 							parentContent, errParentDecode := parentFileContent.GetContent()
 							if errParentDecode == nil {
 								parentModFile, errParentParse := modfile.Parse(parentRepoPath+"/go.mod", []byte(parentContent), nil)
 								if errParentParse == nil {
 									originalModulePath = parentModFile.Module.Mod.Path
-									log.LogVf("            Found parent module path: %s", originalModulePath)
+									log.LogVf("          Found parent module path: %s", originalModulePath)
 								} else {
-									log.Warnf("            Warn: Error parsing parent go.mod for %s: %v", parentRepoPath, errParentParse)
+									log.Warnf("      Warn: Error parsing parent go.mod for %s: %v", parentRepoPath, errParentParse)
 								}
 							} else {
-								log.Warnf("            Warn: Error decoding parent go.mod content for %s: %v", parentRepoPath, errParentDecode)
+								log.Warnf("      Warn: Error decoding parent go.mod content for %s: %v", parentRepoPath, errParentDecode)
 							}
 						} else {
-							log.LogVf("            Parent go.mod not found for %s", parentRepoPath)
+							log.LogVf("        Parent go.mod not found for %s", parentRepoPath)
 						}
 					} else {
-						log.LogVf("        Fork %s has no parent info in full details.", repoPath)
+						log.LogVf("      Fork %s has no parent info in full details.", repoPath)
 					}
 				}
 				// --- End Fetch Parent Info ---

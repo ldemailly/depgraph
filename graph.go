@@ -103,6 +103,42 @@ func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInf
 	return nodesInCycles // Return the map of nodes in cycles
 }
 
+// isNodeDependedOn returns true if the given node is depended on by any other node
+func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) bool {
+	for _, info := range modulesFoundInOwners {
+		if !nodesToGraph[info.Path] {
+			continue
+		}
+		for dep := range info.Deps {
+			if dep == node {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// filterOutUnusedNodes removes nodes from the given set that are not depended on by any other node.
+// It does this recursively, so that if removing a node causes another node to become unused, that
+// node is also removed.
+func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) map[string]bool {
+	changed := true
+	for changed {
+		changed = false
+		nodesToRemove := make([]string, 0)
+		for node := range nodesInCycles {
+			if !isNodeDependedOn(node, modulesFoundInOwners, nodesToGraph) {
+				nodesToRemove = append(nodesToRemove, node)
+				changed = true
+			}
+		}
+		for _, node := range nodesToRemove {
+			delete(nodesInCycles, node)
+		}
+	}
+	return nodesInCycles
+}
+
 // determineNodesToGraph calculates the set of nodes to include in the final graph
 func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool) map[string]bool {
 	nodesToGraph := make(map[string]bool)
@@ -183,6 +219,8 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
 	// --- Detect Cycles to Highlight Nodes ---
 	nodesInCyclesSet := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
+	nodesInCyclesSet = filterOutUnusedNodes(nodesInCyclesSet, modulesFoundInOwners, nodesToGraph)
+
 	// --- End Detect Cycles ---
 
 	// --- Build Forward Adjacency List for Bidirectional Edge Check ---
@@ -289,10 +327,9 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				edgeAttrs := []string{fmt.Sprintf("label=\"%s\"", escapedVersion)} // Start with label attribute
 
 				// Check for bidirectional edge
-				if adj[depPath] != nil && adj[depPath][sourceModPath] {
-					log.LogVf("Highlighting bidirectional edge: %s <-> %s", sourceModPath, depPath)
-					edgeAttrs = append(edgeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Add red color for bidirectional edge
-					edgeAttrs = append(edgeAttrs, "penwidth=1.5")                          // Slightly thicker edge for bidir?
+				if nodesInCyclesSet[sourceModPath] && nodesInCyclesSet[depPath] {
+					edgeAttrs = append(edgeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Add red color for cycle edge
+					edgeAttrs = append(edgeAttrs, "penwidth=1.5")                          // Slightly thicker edge for cycle
 				}
 
 				fmt.Printf("  \"%s\" -> \"%s\" [%s];\n", sourceModPath, depPath, strings.Join(edgeAttrs, ", "))
@@ -333,7 +370,7 @@ func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleI
 func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
 	// Build forward adjacency list needed for bidirectional check
 	adj := make(map[string]map[string]bool) // adj[source][dest] = true
-	bidirPairs := make(map[string]string)   // Store A -> B if A <-> B and A < B
+	bidirPairs := make(map[string]string)   // Store A -> B if A < B
 	isBidirNode := make(map[string]bool)    // Mark nodes involved in any A<->B pair
 
 	for sourceMod, info := range modulesFoundInOwners {
@@ -368,6 +405,7 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 
 	// Build reverse graph and get nodes in cycles (warnings printed inside)
 	nodesInCycles := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
+	nodesInCycles = filterOutUnusedNodes(nodesInCycles, modulesFoundInOwners, nodesToGraph)
 
 	// Re-build reverse graph and in-degrees again for actual level processing
 	reverseAdj := make(map[string][]string)
