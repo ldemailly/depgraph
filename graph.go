@@ -126,7 +126,7 @@ func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInf
 // *within* the set of nodes currently considered to be in cycles.
 func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, currentNodesInCycles map[string]bool) bool {
 	for _, info := range modulesFoundInOwners {
-		// Skip nodes that aren't relevant (external proxies or not in cycle set)
+		// Skip nodes that aren't relevant
 		// TreatAsExternal flag is not relevant for dependency structure check
 		if info == nil || !currentNodesInCycles[info.Path] {
 			continue
@@ -177,16 +177,14 @@ func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners ma
 // *because* they depended on an included non-fork.
 func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool) (map[string]bool, map[string]bool) {
 	nodesToGraph := make(map[string]bool)
-	referencedModules := make(map[string]bool)       // Modules depended on by included nodes
-	forksDependingOnNonFork := make(map[string]bool) // Forks (by declared module path) that depend on an included non-fork
-	// NEW: Track forks included specifically due to dependency on non-forks
+	referencedModules := make(map[string]bool)         // Modules depended on by included nodes
+	forksDependingOnNonFork := make(map[string]bool)   // Forks (by declared module path) that depend on an included non-fork
 	forksIncludedByDependency := make(map[string]bool) // Key: Fork RepoPath
 
 	// Pass 1: Add non-forks and collect their initial dependencies
 	log.Infof("Determining graph nodes: Pass 1 (Non-forks)")
 	for modPath, info := range modulesFoundInOwners {
-		// Include only actual non-forks (not forks marked as external proxies)
-		if info != nil && info.Fetched && !info.IsFork { // TreatAsExternal check removed here, done in main
+		if info != nil && info.Fetched && !info.IsFork {
 			log.LogVf("  Including non-fork: %s", modPath)
 			nodesToGraph[modPath] = true
 			for depPath := range info.Deps {
@@ -199,40 +197,47 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 	// Pass 2: Identify forks that depend on *included* non-forks
 	log.Infof("Determining graph nodes: Pass 2 (Forks depending on Non-forks)")
 	for modPath, info := range modulesFoundInOwners {
-		if info != nil && info.Fetched && info.IsFork { // Check if the stored info represents a fork
+		if info != nil && info.Fetched && info.IsFork {
 			for depPath := range info.Deps {
 				if nodesToGraph[depPath] { // Check if the dependency is an included node
-					// Verify the included node is actually a non-fork
 					depInfo, exists := modulesFoundInOwners[depPath]
-					// Check IsFork status of the dependency's info
-					if exists && !depInfo.IsFork {
+					if exists && !depInfo.IsFork { // Verify the included node is actually a non-fork
 						log.LogVf("  Marking fork '%s' (from %s) as depending on non-fork '%s'", modPath, info.RepoPath, depPath)
-						forksDependingOnNonFork[modPath] = true // Mark the fork's declared path
-						// Also mark this specific fork repo as included due to dependency
+						forksDependingOnNonFork[modPath] = true
 						forksIncludedByDependency[info.RepoPath] = true
-						break // Found one dependency, no need to check others for this fork
+						break
 					}
 				}
 			}
 		}
 	}
 
-	// Pass 3: Add fork nodes if they depend on non-forks OR if their declared path is referenced
-	log.Infof("Determining graph nodes: Pass 3 (Include qualifying Forks)")
+	// Pass 3: Add fork nodes if they depend on non-forks OR (if !noExt) if their declared path is referenced
+	log.Infof("Determining graph nodes: Pass 3 (Include qualifying Forks, noExt=%v)", noExt)
 	for modPath, info := range modulesFoundInOwners {
-		if info != nil && info.Fetched && info.IsFork { // Check if it represents a fork
+		if info != nil && info.Fetched && info.IsFork {
+			includeNode := false
 			includeReason := ""
-			depends := forksDependingOnNonFork[modPath] // Check if marked in Pass 2
-			referenced := referencedModules[modPath]    // Check if the fork's declared path is referenced
+			depends := forksDependingOnNonFork[modPath]
+			referenced := referencedModules[modPath]
 
+			// *** MODIFIED Logic: Check noExt flag ***
 			if depends {
+				// Always include if it depends on an internal non-fork
+				includeNode = true
 				includeReason = "depends on non-fork"
-			} else if referenced {
-				includeReason = "referenced by included module"
+			} else if referenced && !noExt {
+				// Include if referenced ONLY if we are allowing external dependencies (-noext=false)
+				includeNode = true
+				includeReason = "referenced by included module (-noext=false)"
+			} else if referenced && noExt {
+				// Referenced, but -noext=true, so DO NOT include based on reference alone.
+				includeReason = "referenced by included module (but excluded by -noext)"
+				// includeNode remains false
 			}
+			// *** End MODIFIED Logic ***
 
-			if includeReason != "" {
-				// Add the fork's declared path to the graph nodes.
+			if includeNode {
 				log.LogVf("  Including fork node for path '%s' (from %s) because: %s", modPath, info.RepoPath, includeReason)
 				nodesToGraph[modPath] = true // Add the declared module path
 				// Add dependencies of included forks to referenced set
@@ -242,17 +247,20 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 						referencedModules[depPath] = true
 					}
 				}
+			} else if includeReason != "" { // Log if it met criteria but was excluded by -noext
+				log.LogVf("  Skipping fork node for path '%s' (from %s) because: %s", modPath, info.RepoPath, includeReason)
 			}
 		}
 	}
 
-	// Pass 4: Add external dependencies if needed
+	// Pass 4: Add external dependencies if needed (only runs if noExt is false)
 	log.Infof("Determining graph nodes: Pass 4 (External dependencies, noExt=%v)", noExt)
 	if !noExt {
 		for modPath := range allModulePaths {
 			// Check if it's truly external (not in map) OR if the entry in map is a fork not included by dependency,
 			// AND it's referenced, AND not already added
 			info, foundInMap := modulesFoundInOwners[modPath]
+			// A path is considered external if not found OR if found but it's a fork not included by dependency
 			isConsideredExternal := !foundInMap || (info != nil && info.IsFork && !forksIncludedByDependency[info.RepoPath])
 
 			if isConsideredExternal && referencedModules[modPath] && !nodesToGraph[modPath] {
@@ -262,12 +270,11 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 		}
 	}
 	log.Infof("Total nodes included in graph: %d", len(nodesToGraph))
-	// Return both the graph nodes and the map tracking forks included by dependency
 	return nodesToGraph, forksIncludedByDependency
 }
 
 // generateDotOutput generates the DOT graph representation and prints it to stdout
-// Now accepts forksIncludedByDependency map to control styling.
+// Accepts forksIncludedByDependency map to control styling.
 func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, forksIncludedByDependency map[string]bool, noExt bool, left2Right bool) {
 	// --- Detect Cycles ---
 	nodesInCyclesSet, _, _ := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
@@ -310,7 +317,6 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				// Label remains nodePath for non-forks
 			} else {
 				// It's a fork found in owners. Style based on inclusion reason.
-				// Check if this specific fork repo was included *because* it depended on a non-fork.
 				if forksIncludedByDependency[info.RepoPath] {
 					// Style as internal fork
 					isStyledAsInternal = true
@@ -333,9 +339,9 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 		}
 		// Else (not found in map): Treat as external (label=nodePath, color=externalColor)
 
-		// Check consistency if -noext is true
+		// If -noext is true, we should have already excluded this node in determineNodesToGraph if it ended up external.
+		// This check is a safeguard.
 		if !isStyledAsInternal && noExt {
-			// If it's not styled as internal and we exclude externals, skip definition
 			log.Warnf("Node %s styled as external and -noext is true. Skipping node definition.", nodePath)
 			continue
 		}
