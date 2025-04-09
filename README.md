@@ -200,3 +200,11 @@ If you want to modify the code or contribute:
 * Alternative graph output formats (JSON, GML).
 * Interactive web-based visualizations (e.g., using D3.js, vis.js).
 * Handle repositories with multiple Go modules.
+
+## About this
+
+All the code in 0.1.0 is generated through many iterations/prompts of Gemini 2.5 pro
+
+The driving and idea and need and "QA"ing is my own (ldemailly) but I haven't (yet) reviewed the code outside of pointing out errors etc
+
+
