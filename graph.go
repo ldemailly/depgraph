@@ -96,10 +96,15 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 }
 
 // generateDotOutput generates the DOT graph representation and prints it to stdout
-func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool) {
+func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
 	// --- Generate DOT Output ---
 	fmt.Println("digraph dependencies {")
-	fmt.Println("  rankdir=\"TB\";") // Changed from LR to TB
+	// Set rankdir based on flag
+	rankDir := "TB"
+	if left2Right {
+		rankDir = "LR"
+	}
+	fmt.Printf("  rankdir=\"%s\";\n", rankDir) // Use flag value
 	fmt.Println("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];")
 	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];")
 
@@ -129,16 +134,18 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				ownerIdx := info.OwnerIdx
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
 				// --- Updated Fork Labeling Logic ---
-				label = info.RepoPath // Primary label is repo path for qualified forks
 				// Add descriptive suffix if original path was found
 				if info.OriginalModulePath != "" {
 					if info.Path == info.OriginalModulePath {
 						// Path matches original: RepoPath\n(fork of OriginalPath)
-						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath) // Use \n
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath) // Use RepoPath
 					} else {
-						// Path differs: RepoPath\n(DeclaredPath fork of OriginalPath)
-						label = fmt.Sprintf("%s\\n(%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath) // Use \n
+						// Path differs: DeclaredPath\n(fork of OriginalPath)
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.Path, info.OriginalModulePath) // Use Declared Path
 					}
+				} else {
+					// Original path not found, just use RepoPath
+					label = info.RepoPath
 				}
 				// --- End Updated Fork Labeling Logic ---
 			}
@@ -301,7 +308,8 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 			outputStr := nodePath // Default output is module path
 			// Look up info to customize output for forks
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
-				outputStr = info.RepoPath // Use repo path for forks
+				// Use RepoPath as the primary identifier in text output for forks
+				outputStr = info.RepoPath
 				// Append original module path if it was found
 				if info.OriginalModulePath != "" {
 					if info.Path == info.OriginalModulePath {

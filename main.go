@@ -20,7 +20,8 @@ func main() {
 	noExtFlag := flag.Bool("noext", false, "Exclude external (non-org/user) dependencies from the graph")
 	useCacheFlag := flag.Bool("use-cache", true, "Enable filesystem caching for GitHub API calls")
 	clearCacheFlag := flag.Bool("clear-cache", false, "Clear the cache directory before running")
-	topoSortFlag := flag.Bool("topo-sort", false, "Output dependencies in topological sort order by level (text format, disables DOT output)") // New flag
+	topoSortFlag := flag.Bool("topo-sort", false, "Output dependencies in topological sort order by level (text format, disables DOT output)")
+	left2RightFlag := flag.Bool("left2right", false, "Generate graph left-to-right instead of top-to-bottom (default)") // New flag
 
 	// Configure and run fortio/cli to handle flags and args
 	cli.ArgsHelp = "owner1 [owner2...]" // Set custom usage text for arguments
@@ -33,8 +34,9 @@ func main() {
 	owners := flag.Args() // Get owners from arguments after flag parsing by cli.Main
 	// Read flag values into local variables
 	noExt := *noExtFlag
-	useCache := *useCacheFlag // Local variable, passed down
-	topoSort := *topoSortFlag // Read topo-sort flag
+	useCache := *useCacheFlag     // Local variable, passed down
+	topoSort := *topoSortFlag     // Read topo-sort flag
+	left2Right := *left2RightFlag // Read left2right flag
 
 	// Initialize or clear cache
 	cacheDir, err := initCache()
@@ -230,7 +232,8 @@ func main() {
 	if topoSort {
 		performTopologicalSortAndPrint(modulesFoundInOwners, nodesToGraph)
 	} else {
-		generateDotOutput(modulesFoundInOwners, nodesToGraph, noExt)
+		// Pass left2Right flag to DOT generation
+		generateDotOutput(modulesFoundInOwners, nodesToGraph, noExt, left2Right)
 	}
 	// --- End Generate Output ---
 }

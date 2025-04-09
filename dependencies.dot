@@ -1,5 +1,5 @@
 digraph dependencies {
-  rankdir="TB";
+  rankdir="LR";
   node [shape=box, style="rounded,filled", fontname="Helvetica"];
   edge [fontname="Helvetica", fontsize=10];
 
@@ -22,10 +22,10 @@ digraph dependencies {
   "fortio.org/sets" [label="fortio.org/sets", fillcolor="lightblue"];
   "fortio.org/slack-proxy" [label="fortio.org/slack-proxy", fillcolor="lightblue"];
   "fortio.org/struct2env" [label="fortio.org/struct2env", fillcolor="lightblue"];
-  "fortio.org/term" [label="fortio/term\n(fortio.org/term fork of golang.org/x/term)", fillcolor="steelblue"];
+  "fortio.org/term" [label="fortio.org/term\n(fork of golang.org/x/term)", fillcolor="steelblue"];
   "fortio.org/terminal" [label="fortio.org/terminal", fillcolor="lightblue"];
   "fortio.org/terminal/fps" [label="fortio.org/terminal/fps", fillcolor="lightblue"];
-  "fortio.org/testscript" [label="fortio/testscript\n(fortio.org/testscript fork of github.com/rogpeppe/go-internal)", fillcolor="steelblue"];
+  "fortio.org/testscript" [label="fortio.org/testscript\n(fork of github.com/rogpeppe/go-internal)", fillcolor="steelblue"];
   "fortio.org/version" [label="fortio.org/version", fillcolor="lightblue"];
   "github.com/bwmarrin/discordgo" [label="ldemailly/discordgo\n(fork of github.com/bwmarrin/discordgo)", fillcolor="coral"];
   "github.com/fortio/delta" [label="github.com/fortio/delta", fillcolor="lightblue"];
