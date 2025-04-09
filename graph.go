@@ -20,110 +20,126 @@ var (
 
 // --- Graph Generation Logic ---
 
-// buildReverseGraphAndDetectCycles builds the reversed graph for cycle detection.
-// Operates on the nodes provided in nodesToGraph.
+// buildReverseGraphAndDetectCycles builds the reversed graph, runs Kahn's algorithm
+// to detect cycles, logs warnings, and returns the set of nodes likely involved in cycles.
+// Returns: map[nodePath]bool indicating nodes in cycles, and the initial inDegree map.
 func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) (map[string]bool, map[string]int, map[string][]string) {
 	reverseAdj := make(map[string][]string)
 	inDegree := make(map[string]int)
-	nodesInSort := []string{} // Nodes included in this specific graph build
+	nodesInSort := []string{}
 
-	for nodePath := range nodesToGraph {
-		inDegree[nodePath] = 0
-		nodesInSort = append(nodesInSort, nodePath)
+	// Initialize in-degrees and identify nodes for sorting
+	for node := range nodesToGraph {
+		inDegree[node] = 0
+		nodesInSort = append(nodesInSort, node)
 	}
-	sort.Strings(nodesInSort)
+	sort.Strings(nodesInSort) // Sort for deterministic processing later
 
-	for sourceMod := range nodesToGraph {
-		sourceInfo, exists := modulesFoundInOwners[sourceMod]
-		if !exists || sourceInfo == nil {
+	// Build reversed adjacency list and calculate in-degrees
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] {
 			continue
-		} // Skip external
-
-		if _, existsAdj := reverseAdj[sourceMod]; !existsAdj {
+		}
+		if _, exists := reverseAdj[sourceMod]; !exists {
 			reverseAdj[sourceMod] = []string{}
 		}
-		depPaths := make([]string, 0, len(sourceInfo.Deps))
-		for dep := range sourceInfo.Deps {
+		// Sort dependencies for deterministic edge processing if needed elsewhere
+		depPaths := make([]string, 0, len(info.Deps))
+		for dep := range info.Deps {
 			depPaths = append(depPaths, dep)
 		}
 		sort.Strings(depPaths)
 
 		for _, dep := range depPaths {
-			if nodesToGraph[dep] { // Only consider edges within the graph set
-				if _, existsAdjDep := reverseAdj[dep]; !existsAdjDep {
+			if nodesToGraph[dep] {
+				if _, exists := reverseAdj[dep]; !exists {
 					reverseAdj[dep] = []string{}
 				}
-				reverseAdj[dep] = append(reverseAdj[dep], sourceMod)
+				reverseAdj[dep] = append(reverseAdj[dep], sourceMod) // dep -> sourceMod in reverse graph
 				inDegree[sourceMod]++
 			}
 		}
 	}
 
-	// Kahn's Algorithm for Cycle Detection
+	// --- Kahn's Algorithm for Cycle Detection ---
 	queue := []string{}
-	tempInDegree := make(map[string]int)
+	tempInDegree := make(map[string]int) // Use a temporary map for cycle detection Kahn's
 	for node, degree := range inDegree {
 		tempInDegree[node] = degree
 		if degree == 0 {
 			queue = append(queue, node)
 		}
 	}
-	sort.Strings(queue)
+	sort.Strings(queue) // Initial sort
+
 	processedCount := 0
+	// Process the queue (Kahn's algorithm)
 	for len(queue) > 0 {
 		u := queue[0]
 		queue = queue[1:]
 		processedCount++
+
+		// Sort neighbors for deterministic processing order
 		neighbors := reverseAdj[u]
 		sort.Strings(neighbors)
-		for _, v := range neighbors {
+
+		for _, v := range neighbors { // For each node v that depends on u (u -> v in original graph)
 			tempInDegree[v]--
 			if tempInDegree[v] == 0 {
-				queue = append(queue, v)
+				queue = append(queue, v) // Add newly free node
 			}
 		}
-		sort.Strings(queue)
+		sort.Strings(queue) // Keep queue sorted if needed for deterministic level output (though not strictly necessary for cycle detection itself)
 	}
 
-	// Identify nodes likely in cycles
+	// Identify nodes likely in cycles (those with remaining tempInDegree > 0)
 	nodesInCycles := make(map[string]bool)
 	if processedCount < len(nodesInSort) {
 		log.Warnf("Cycle detected in dependencies! Processed %d nodes, expected %d.", processedCount, len(nodesInSort))
 		log.Warnf("Nodes likely involved in cycles (remaining in-degree > 0):")
 		remainingNodes := []string{}
 		for _, node := range nodesInSort {
+			// Use tempInDegree which was modified by Kahn's
 			if tempInDegree[node] > 0 {
 				remainingNodes = append(remainingNodes, node)
-				nodesInCycles[node] = true
+				nodesInCycles[node] = true // Add to the map for return
 			}
 		}
 		sort.Strings(remainingNodes)
 		for _, node := range remainingNodes {
+			// Log the remaining degree from the *cycle detection* pass
 			log.Warnf("  - %s (remaining reversed in-degree during cycle check: %d)", node, tempInDegree[node])
 		}
 	}
+	// Return the original inDegree map for the main topo sort
 	return nodesInCycles, inDegree, reverseAdj
 }
 
-// isNodeDependedOn checks dependencies within the cycle set
+// isNodeDependedOn returns true if the given node is depended on by any other node
+// *within* the set of nodes currently considered to be in cycles.
 func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, currentNodesInCycles map[string]bool) bool {
-	for modPath, info := range modulesFoundInOwners {
-		if info == nil || !currentNodesInCycles[modPath] {
+	for _, info := range modulesFoundInOwners {
+		// Only check dependencies *of* nodes that are *also* in the current cycle set.
+		if !currentNodesInCycles[info.Path] {
 			continue
 		}
 		for dep := range info.Deps {
 			if dep == node {
-				return true
+				return true // Found a node within the cycle set that depends on 'node'
 			}
 		}
 	}
 	return false
 }
 
-// filterOutUnusedNodes refines the cycle set
+// filterOutUnusedNodes removes nodes from the cycle set that are not depended upon
+// by any *other* node *within the cycle set*. This helps refine the cycle detection
+// by removing nodes that might have a non-zero in-degree initially due to dependencies
+// from *outside* the cycle, but aren't actually part of a loop structure themselves.
+// It iteratively removes such nodes until no more can be removed.
 func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) map[string]bool {
 	if len(nodesInCycles) == 0 {
-		return nodesInCycles
+		return nodesInCycles // No cycles detected, nothing to filter
 	}
 	log.LogVf("Refining cycle detection: Initial cycle candidates: %d", len(nodesInCycles))
 	changed := true
@@ -132,8 +148,13 @@ func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners ma
 		iteration++
 		changed = false
 		nodesToRemove := []string{}
+		// Check each node currently marked as potentially in a cycle
 		for node := range nodesInCycles {
+			// Check if this node is depended on by *any other node* currently in the `nodesInCycles` set
 			if !isNodeDependedOn(node, modulesFoundInOwners, nodesInCycles) {
+				// If no other node *in the cycle set* depends on this node,
+				// it might be a sink within the potential cycle components, or only depended upon from outside.
+				// Mark it for removal from the cycle set.
 				nodesToRemove = append(nodesToRemove, node)
 				changed = true
 			}
@@ -151,141 +172,107 @@ func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners ma
 	return nodesInCycles
 }
 
-// determineNodesAndForkDeps calculates the set of nodes potentially included and
-// which forks depend on *any other module found in the scanned owners*.
-// It returns the full potential graph (incl. referenced forks/externals)
-// and the map indicating qualifying forks. Filtering is done in output functions.
-func determineNodesAndForkDeps(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool) (map[string]bool, map[string]bool) {
-	initialNodesToGraph := make(map[string]bool)
-	referencedModules := make(map[string]bool)
-	// Map tracks forks depending on *any* other module found in owners
-	forkDependsOnAnyInternal := make(map[string]bool) // Key: Fork RepoPath
+// determineNodesToGraph calculates the set of nodes to include in the final graph
+func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool) map[string]bool {
+	nodesToGraph := make(map[string]bool)
+	referencedModules := make(map[string]bool)       // Modules depended on by included nodes (non-forks or included forks)
+	forksDependingOnNonFork := make(map[string]bool) // Forks (by module path) that depend on an included non-fork
 
-	// Pass 1: Add internal non-forks and collect paths referenced by them.
-	log.Infof("Determining graph nodes: Pass 1 (Internal Non-forks)")
+	// Pass 1: Add non-forks and collect their initial dependencies
+	log.Infof("Determining graph nodes: Pass 1 (Non-forks)")
 	for modPath, info := range modulesFoundInOwners {
-		if info != nil && info.Fetched && !info.IsFork {
-			log.LogVf("  Including internal non-fork: %s", modPath)
-			initialNodesToGraph[modPath] = true
+		if info.Fetched && !info.IsFork {
+			log.LogVf("  Including non-fork: %s", modPath)
+			nodesToGraph[modPath] = true
 			for depPath := range info.Deps {
 				log.LogVf("    References: %s", depPath)
 				referencedModules[depPath] = true
 			}
 		}
 	}
-
-	// Pass 2: Identify forks that depend on *any* other module also found in owners.
-	log.Infof("Determining graph nodes: Pass 2 (Identify forks depending on any internal module)")
-	for _, info := range modulesFoundInOwners { // Iterate all found modules
-		if info != nil && info.Fetched && info.IsFork { // If it's a fork
-			for depPath := range info.Deps { // Check its dependencies
-				// If dependency target is *any* module found in owners map
-				if _, exists := modulesFoundInOwners[depPath]; exists {
-					log.LogVf("  Marking fork '%s' (from %s) as depending on an internal module '%s'", info.Path, info.RepoPath, depPath)
-					forkDependsOnAnyInternal[info.RepoPath] = true
-					break // Mark based on first internal dependency
+	// Pass 2: Identify forks that depend on *included* non-forks
+	log.Infof("Determining graph nodes: Pass 2 (Forks depending on Non-forks)")
+	for modPath, info := range modulesFoundInOwners {
+		if info.Fetched && info.IsFork {
+			for depPath := range info.Deps {
+				if nodesToGraph[depPath] { // Check if the dep is an included non-fork
+					if depInfo, found := modulesFoundInOwners[depPath]; found && !depInfo.IsFork {
+						log.LogVf("  Marking fork '%s' (from %s) as depending on non-fork '%s'", modPath, info.RepoPath, depPath)
+						forksDependingOnNonFork[modPath] = true // Mark the fork module path
+						break
+					}
 				}
 			}
 		}
 	}
-
-	// Pass 3: Add fork nodes if they depend on any internal module OR if their declared path is referenced
-	log.Infof("Determining graph nodes: Pass 3 (Include qualifying Forks initially)")
+	// Pass 3: Add forks if they depend on non-forks OR if their module path is referenced by a non-fork initially
+	log.Infof("Determining graph nodes: Pass 3 (Include qualifying Forks)")
 	for modPath, info := range modulesFoundInOwners {
-		if info != nil && info.Fetched && info.IsFork {
-			includeNode := false
+		if info.Fetched && info.IsFork {
 			includeReason := ""
-			// Check the map calculated in Pass 2
-			depends := forkDependsOnAnyInternal[info.RepoPath]
-			referenced := referencedModules[modPath]
-
-			if depends {
-				includeNode = true
-				includeReason = "depends on internal module"
-			} else if referenced {
-				includeNode = true
+			// Include fork if it depends on a non-fork OR if a non-fork depends on its module path
+			if forksDependingOnNonFork[modPath] {
+				includeReason = "depends on non-fork"
+			} else if referencedModules[modPath] {
 				includeReason = "referenced by included module"
 			}
 
-			if includeNode {
-				log.LogVf("  Initially including fork node for path '%s' (from %s) because: %s", modPath, info.RepoPath, includeReason)
-				initialNodesToGraph[modPath] = true // Add the declared module path
-				// Add dependencies of included forks to referenced set
+			if includeReason != "" {
+				log.LogVf("  Including fork '%s' (from %s) because: %s", modPath, info.RepoPath, includeReason)
+				nodesToGraph[modPath] = true
+				// Add dependencies of included forks to referenced set for external inclusion check
 				for depPath := range info.Deps {
 					if !referencedModules[depPath] {
-						log.LogVf("    Now referencing (from initially included fork): %s", depPath)
+						log.LogVf("    Now referencing (from included fork): %s", depPath)
 						referencedModules[depPath] = true
 					}
 				}
 			}
 		}
 	}
-
-	// Pass 4: Add external dependencies (always calculate, filter in output)
-	log.Infof("Determining graph nodes: Pass 4 (Include External dependencies initially)")
-	for modPath := range allModulePaths {
-		_, foundInMap := modulesFoundInOwners[modPath]
-		isConsideredExternal := !foundInMap
-		if isConsideredExternal && referencedModules[modPath] && !initialNodesToGraph[modPath] {
-			log.LogVf("  Initially including external node: %s (referenced)", modPath)
-			initialNodesToGraph[modPath] = true
+	// Pass 4: Add external dependencies if needed
+	log.Infof("Determining graph nodes: Pass 4 (External dependencies, noExt=%v)", noExt)
+	if !noExt {
+		for modPath := range allModulePaths {
+			_, foundInOwner := modulesFoundInOwners[modPath]
+			// Add if external and referenced by an included node (non-fork or included fork)
+			if !foundInOwner && referencedModules[modPath] {
+				if !nodesToGraph[modPath] { // Avoid logging duplicates if somehow already added
+					log.LogVf("  Including external: %s (referenced)", modPath)
+					nodesToGraph[modPath] = true
+				}
+			}
 		}
 	}
-
-	log.Infof("Total nodes determined before filtering: %d", len(initialNodesToGraph))
-	// Return the potentially larger set and the dependency map
-	return initialNodesToGraph, forkDependsOnAnyInternal
+	log.Infof("Total nodes included in graph: %d", len(nodesToGraph))
+	return nodesToGraph
 }
 
 // generateDotOutput generates the DOT graph representation and prints it to stdout
-// Applies -noext filtering during generation.
-func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, initialNodesToGraph map[string]bool, forkDependsOnAnyInternal map[string]bool, noExt bool, left2Right bool) {
+func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
+	// --- Detect Cycles to Highlight Nodes ---
+	nodesInCyclesSet, _, _ := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
+	// Refine the cycle set before using it for highlighting
+	nodesInCyclesSet = filterOutUnusedNodes(nodesInCyclesSet, modulesFoundInOwners, nodesToGraph)
 
-	// --- Filter nodes based on noExt ---
-	finalNodesToGraph := make(map[string]bool)
-	log.Infof("Filtering nodes for DOT output (noExt=%v)...", noExt)
-	for nodePath := range initialNodesToGraph {
-		info, foundInMap := modulesFoundInOwners[nodePath]
-		keepNode := false
-		isStyledInternal := false // Determine styling intent first
+	// --- End Detect Cycles ---
 
-		if foundInMap && info != nil { // Node corresponds to a scanned repo
-			if !info.IsFork { // It's a non-fork
-				isStyledInternal = true
-			} else { // It's a fork
-				// Style as internal fork only if it depends on ANY internal module
-				if forkDependsOnAnyInternal[info.RepoPath] {
-					isStyledInternal = true // Qualifies as internal fork
-				} else { // Fork included only by reference
-					isStyledInternal = false // Does NOT qualify as internal fork
-				}
-			}
-		} else { // Node is truly external (not found in scanned repos)
-			isStyledInternal = false
+	// --- Build Forward Adjacency List for Bidirectional Edge Check ---
+	adj := make(map[string]map[string]bool) // adj[source][dest] = true
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] {
+			continue
 		}
-
-		// Decision: Keep node?
-		if isStyledInternal {
-			keepNode = true // Always keep nodes styled internal
-		} else {
-			if !noExt {
-				keepNode = true
+		if adj[sourceMod] == nil {
+			adj[sourceMod] = make(map[string]bool)
+		}
+		for dep := range info.Deps {
+			if nodesToGraph[dep] {
+				adj[sourceMod][dep] = true
 			}
-		} // Keep externally styled if !noExt
-
-		if keepNode {
-			finalNodesToGraph[nodePath] = true
-		} else {
-			log.LogVf("Filtering out node %s from DOT output (isStyledInternal=%v, noExt=%v)", nodePath, isStyledInternal, noExt)
 		}
 	}
-	log.Infof("Nodes included in DOT after filtering: %d", len(finalNodesToGraph))
-	// --- End Filter ---
-
-	// --- Detect Cycles ---
-	nodesInCyclesSet, _, _ := buildReverseGraphAndDetectCycles(modulesFoundInOwners, finalNodesToGraph)
-	nodesInCyclesSet = filterOutUnusedNodes(nodesInCyclesSet, modulesFoundInOwners, finalNodesToGraph)
-	// --- End Detect Cycles ---
+	// --- End Build Forward Adjacency List ---
 
 	// --- Generate DOT Output ---
 	fmt.Println("digraph dependencies {")
@@ -295,237 +282,199 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, initialNodes
 	}
 	fmt.Printf("  rankdir=\"%s\";\n", rankDir)
 	fmt.Println("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];")
-	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];")
+	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];") // Default edge style
 
+	// Define nodes with appropriate colors and labels
 	fmt.Println("\n  // Node Definitions")
-	sortedNodes := make([]string, 0, len(finalNodesToGraph))
-	for nodePath := range finalNodesToGraph {
+	sortedNodes := make([]string, 0, len(nodesToGraph))
+	for nodePath := range nodesToGraph {
 		sortedNodes = append(sortedNodes, nodePath)
 	}
 	sort.Strings(sortedNodes)
 
 	for _, nodePath := range sortedNodes {
-		label := nodePath
+		label := nodePath // Default label is the node path (module path)
 		color := externalColor
 		nodeAttrs := []string{}
-		isStyledAsInternal := false
-		info, foundInScannedMap := modulesFoundInOwners[nodePath] // Should exist if in finalNodesToGraph
 
-		// Determine styling based on info
-		if foundInScannedMap && info != nil {
+		info, foundInScanned := modulesFoundInOwners[nodePath]
+		if foundInScanned {
+			ownerIdx := info.OwnerIdx
 			if !info.IsFork {
-				isStyledAsInternal = true
-				ownerIdx := info.OwnerIdx
 				color = orgNonForkColors[ownerIdx%len(orgNonForkColors)]
-			} else { // It's a fork
-				if forkDependsOnAnyInternal[info.RepoPath] { // Style as internal fork
-					isStyledAsInternal = true
-					ownerIdx := info.OwnerIdx
-					color = orgForkColors[ownerIdx%len(orgForkColors)]
-					if info.OriginalModulePath != "" {
-						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
-					} else {
-						label = fmt.Sprintf("%s\\n(fork)", info.RepoPath)
-					}
-				} else { // Style as external (grey)
-					isStyledAsInternal = false
-					color = externalColor
-					label = nodePath
-					log.LogVf("Styling node '%s' as external (fork '%s' included but not via internal dependency)", nodePath, info.RepoPath)
+				// Label remains nodePath
+			} else {
+				color = orgForkColors[ownerIdx%len(orgForkColors)]
+				// *** Fork Labeling Logic for DOT Output (Multi-line using RepoPath) ***
+				// Use RepoPath consistently for the first line, based on user feedback/examples.
+				// Use \\n in Sprintf format string to produce literal \n in the label for DOT.
+				if info.OriginalModulePath != "" {
+					label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
+				} else {
+					// Fallback if original path couldn't be found
+					label = fmt.Sprintf("%s\\n(fork)", info.RepoPath)
 				}
+				// *** End Fork Labeling Logic ***
 			}
-		} else { // External node (only possible if noExt=false)
-			isStyledAsInternal = false
-			color = externalColor
-			label = nodePath
+		} else if noExt {
+			continue // Skip external nodes if noExt is true
 		}
 
-		// Escape label and add attributes
+		// Escape label for DOT format AFTER generating it.
+		// Only escape double quotes. The \\n from Sprintf should remain as \n.
 		escapedLabel := strings.ReplaceAll(label, "\"", "\\\"")
-		nodeAttrs = append(nodeAttrs, fmt.Sprintf("label=\"%s\"", escapedLabel), fmt.Sprintf("fillcolor=\"%s\"", color))
-		if isStyledAsInternal && nodesInCyclesSet[nodePath] {
-			nodeAttrs = append(nodeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor), "penwidth=2")
+		nodeAttrs = append(nodeAttrs, fmt.Sprintf("label=\"%s\"", escapedLabel))
+		nodeAttrs = append(nodeAttrs, fmt.Sprintf("fillcolor=\"%s\"", color))
+
+		// Highlight border if node is part of a refined cycle
+		if nodesInCyclesSet[nodePath] {
+			log.LogVf("Highlighting cycle node in DOT: %s", nodePath)
+			nodeAttrs = append(nodeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Set border color
+			nodeAttrs = append(nodeAttrs, "penwidth=2")
 		}
+
 		fmt.Printf("  \"%s\" [%s];\n", nodePath, strings.Join(nodeAttrs, ", "))
 	}
 
 	fmt.Println("\n  // Edges (Dependencies)")
-	// Iterate sources that are styled internal AND in the final graph
 	sourceModulesInGraph := []string{}
-	for modPath, info := range modulesFoundInOwners {
-		isSourceStyledInternal := false
-		if info != nil {
-			if !info.IsFork {
-				isSourceStyledInternal = true
-			} else if forkDependsOnAnyInternal[info.RepoPath] {
-				isSourceStyledInternal = true
-			}
-		}
-		if isSourceStyledInternal && finalNodesToGraph[modPath] {
+	for modPath := range modulesFoundInOwners {
+		if nodesToGraph[modPath] {
 			sourceModulesInGraph = append(sourceModulesInGraph, modPath)
 		}
 	}
 	sort.Strings(sourceModulesInGraph)
 
+	// Print edges
 	for _, sourceModPath := range sourceModulesInGraph {
 		info := modulesFoundInOwners[sourceModPath]
 		if info == nil {
 			continue
 		}
+
 		depPaths := make([]string, 0, len(info.Deps))
 		for depPath := range info.Deps {
 			depPaths = append(depPaths, depPath)
 		}
 		sort.Strings(depPaths)
+
 		for _, depPath := range depPaths {
-			if finalNodesToGraph[depPath] { // Draw edge only if target is in final graph
+			if nodesToGraph[depPath] { // Only draw edge if target is included
 				version := info.Deps[depPath]
 				escapedVersion := strings.ReplaceAll(version, "\"", "\\\"")
-				edgeAttrs := []string{fmt.Sprintf("label=\"%s\"", escapedVersion)}
-				targetInfo, _ := modulesFoundInOwners[depPath]
-				isTargetStyledInternal := false
-				if targetInfo != nil {
-					if !targetInfo.IsFork {
-						isTargetStyledInternal = true
-					} else if forkDependsOnAnyInternal[targetInfo.RepoPath] {
-						isTargetStyledInternal = true
-					}
+				edgeAttrs := []string{fmt.Sprintf("label=\"%s\"", escapedVersion)} // Start with label attribute
+
+				// Highlight edge if both source and destination are in the refined cycle set
+				if nodesInCyclesSet[sourceModPath] && nodesInCyclesSet[depPath] {
+					edgeAttrs = append(edgeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Add red color for cycle edge
+					edgeAttrs = append(edgeAttrs, "penwidth=1.5")                          // Slightly thicker edge for cycle
 				}
-				if isTargetStyledInternal && nodesInCyclesSet[sourceModPath] && nodesInCyclesSet[depPath] {
-					edgeAttrs = append(edgeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor), "penwidth=1.5")
-				}
+
 				fmt.Printf("  \"%s\" -> \"%s\" [%s];\n", sourceModPath, depPath, strings.Join(edgeAttrs, ", "))
 			}
 		}
 	}
+
 	fmt.Println("}")
+	// --- End Generate DOT Output ---
 }
 
 // --- Topological Sort Logic ---
 
 // Helper function to format node output for topo sort (SINGLE LINE format)
-func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleInfo, forkDependsOnAnyInternal map[string]bool) string { // Renamed map parameter
+func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleInfo) string {
+	// Default output is module path
 	outputStr := nodePath
-	info, exists := modulesFoundInOwners[nodePath]
-	if exists && info != nil {
-		if !info.IsFork {
-			outputStr = info.Path
-		} else { // Fork
-			if forkDependsOnAnyInternal[info.RepoPath] { // Style as internal fork
-				outputStr = info.RepoPath
-				if info.OriginalModulePath != "" {
-					if info.Path == info.OriginalModulePath {
-						outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
-					} else {
-						outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
-					}
-				} else {
-					outputStr = fmt.Sprintf("%s (fork)", info.RepoPath)
-				}
-			} // Else: Treat as external, label remains nodePath
+	// Look up info to customize output for forks
+	if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
+		// Always start with the repo path for forks
+		outputStr = info.RepoPath
+		// Append original module path if it was found and differs from the fork's declared path
+		if info.OriginalModulePath != "" {
+			if info.Path == info.OriginalModulePath {
+				// Path matches original: RepoPath (fork of OriginalPath)
+				outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
+			} else {
+				// Path differs: RepoPath (DeclaredPath fork of OriginalPath)
+				outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
+			}
+		} else {
+			// Fork, but couldn't find original module path
+			outputStr = fmt.Sprintf("%s (fork)", info.RepoPath)
 		}
-	} // Else (external): label remains nodePath
+	}
 	return outputStr
 }
 
-// printLevel needs the corrected map name
-func printLevel(levelNodes []string, levelIndex int, indent string, modulesFoundInOwners map[string]*ModuleInfo, forkDependsOnAnyInternal map[string]bool, bidirPairs map[string]string, isBidirNode map[string]bool, processedForOutput map[string]bool, levelName string) { // Renamed map parameter
+// printLevel prints a single level of the topological sort, handling A<->B pairs.
+func printLevel(levelNodes []string, levelIndex int, indent string, modulesFoundInOwners map[string]*ModuleInfo, bidirPairs map[string]string, isBidirNode map[string]bool, processedForOutput map[string]bool, levelName string) {
 	if len(levelNodes) == 0 {
-		return
+		return // Don't print empty levels
 	}
 	fmt.Printf("%sLevel %d%s:\n", indent, levelIndex, levelName)
 	levelSet := make(map[string]bool)
 	for _, node := range levelNodes {
 		levelSet[node] = true
-	}
+	} // For quick lookup
+
+	// Sort level nodes for consistent processing order
 	sortedLevelNodes := make([]string, len(levelNodes))
 	copy(sortedLevelNodes, levelNodes)
 	sort.Strings(sortedLevelNodes)
+
 	for _, nodePath := range sortedLevelNodes {
 		if processedForOutput[nodePath] {
-			continue
+			continue // Skip if already printed as part of a pair
 		}
-		partner, isPairStart := bidirPairs[nodePath]
-		_, partnerInLevel := levelSet[partner]
-		if isPairStart && partnerInLevel { // A<->B pair
-			formattedA := formatNodeForTopo(nodePath, modulesFoundInOwners, forkDependsOnAnyInternal)
-			formattedB := formatNodeForTopo(partner, modulesFoundInOwners, forkDependsOnAnyInternal)
+
+		partner, isPairStart := bidirPairs[nodePath] // Is nodePath the 'A' in an A<->B pair (where A<B)?
+		_, partnerInLevel := levelSet[partner]       // Is the partner B also in this level?
+
+		if isPairStart && partnerInLevel { // Is it A in A<->B and B is also in this level?
+			// Print combined format using the text-based helper
+			formattedA := formatNodeForTopo(nodePath, modulesFoundInOwners)
+			formattedB := formatNodeForTopo(partner, modulesFoundInOwners)
 			fmt.Printf("%s  - %s <-> %s\n", indent, formattedA, formattedB)
 			processedForOutput[nodePath] = true
 			processedForOutput[partner] = true
-		} else { // Print individually
+		} else {
+			// Print individually using the text-based helper
 			marker := ""
-			outputStr := formatNodeForTopo(nodePath, modulesFoundInOwners, forkDependsOnAnyInternal)
+			outputStr := formatNodeForTopo(nodePath, modulesFoundInOwners) // Format fork info
 			fmt.Printf("%s  - %s%s\n", indent, outputStr, marker)
 			processedForOutput[nodePath] = true
 		}
 	}
 }
 
-// performTopologicalSortAndPrint applies -noext filtering internally.
-func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, initialNodesToGraph map[string]bool, forkDependsOnAnyInternal map[string]bool, noExt bool) { // Renamed map parameter
+// performTopologicalSortAndPrint performs Kahn's algorithm on the REVERSE graph
+// printing levels starting with leaves, grouping cycles into their own level.
+func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
+	// --- Initial Setup ---
 	log.Infof("Starting topological sort (leaves first)...")
 
-	// --- Filter nodes based on noExt ---
-	finalNodesToGraph := make(map[string]bool)
-	log.Infof("Filtering nodes for topo sort output (noExt=%v)...", noExt)
-	for nodePath := range initialNodesToGraph {
-		info, foundInMap := modulesFoundInOwners[nodePath]
-		keepNode := false
-		isStyledInternal := false
-		if foundInMap && info != nil {
-			if !info.IsFork {
-				isStyledInternal = true
-			} else if forkDependsOnAnyInternal[info.RepoPath] {
-				isStyledInternal = true
-			}
-		}
-		if isStyledInternal {
-			keepNode = true
-		} else {
-			if !noExt {
-				keepNode = true
-			}
-		}
-		if keepNode {
-			finalNodesToGraph[nodePath] = true
-		} else {
-			log.LogVf("Filtering out node %s from topo sort output (isStyledInternal=%v, noExt=%v)", nodePath, isStyledInternal, noExt)
-		}
-	}
-	log.Infof("Nodes included in topo sort after filtering: %d", len(finalNodesToGraph))
-	// --- End Filter ---
+	// Build forward adjacency list needed for bidirectional check
+	adj := make(map[string]map[string]bool) // adj[source][dest] = true
+	bidirPairs := make(map[string]string)   // Store A -> B if A < B
+	isBidirNode := make(map[string]bool)    // Mark nodes involved in any A<->B pair
 
-	// --- Initial Setup ---
-	bidirPairs := make(map[string]string)
-	isBidirNode := make(map[string]bool)
-	for sourceMod, sourceInfo := range modulesFoundInOwners {
-		isSourceStyledInternal := false
-		if sourceInfo != nil {
-			if !sourceInfo.IsFork {
-				isSourceStyledInternal = true
-			} else if forkDependsOnAnyInternal[sourceInfo.RepoPath] {
-				isSourceStyledInternal = true
-			}
-		}
-		if !isSourceStyledInternal || !finalNodesToGraph[sourceMod] {
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] {
 			continue
-		} // Check finalNodesToGraph
-		for dep := range sourceInfo.Deps {
-			if finalNodesToGraph[dep] { // Check finalNodesToGraph
-				depInfo, exists := modulesFoundInOwners[dep]
-				isTargetStyledInternal := false
-				if exists && depInfo != nil {
-					if !depInfo.IsFork {
-						isTargetStyledInternal = true
-					} else if forkDependsOnAnyInternal[depInfo.RepoPath] {
-						isTargetStyledInternal = true
-					}
-				}
-				if isTargetStyledInternal {
-					if _, dependsBack := depInfo.Deps[sourceMod]; dependsBack {
+		}
+		if adj[sourceMod] == nil {
+			adj[sourceMod] = make(map[string]bool)
+		}
+		for dep := range info.Deps {
+			if nodesToGraph[dep] {
+				adj[sourceMod][dep] = true
+				// Check for bidirectional link (B depends on A)
+				if otherInfo, ok := modulesFoundInOwners[dep]; ok && nodesToGraph[otherInfo.Path] {
+					if _, dependsBack := otherInfo.Deps[sourceMod]; dependsBack {
+						// Found B -> A as well
 						isBidirNode[sourceMod] = true
 						isBidirNode[dep] = true
+						// Store pair consistently (e.g., always store A->B where A < B)
 						if sourceMod < dep {
 							bidirPairs[sourceMod] = dep
 						} else {
@@ -537,48 +486,56 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		}
 	}
 
-	nodesInCycles, initialInDegree, reverseAdj := buildReverseGraphAndDetectCycles(modulesFoundInOwners, finalNodesToGraph) // USE filtered nodes
-	nodesInCycles = filterOutUnusedNodes(nodesInCycles, modulesFoundInOwners, finalNodesToGraph)                            // USE filtered nodes
-	// --- End Setup ---
+	// Build reverse graph, get initial in-degrees, and detect cycle nodes
+	nodesInCycles, initialInDegree, reverseAdj := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
+	// Refine the cycle set *before* starting the main topo sort
+	nodesInCycles = filterOutUnusedNodes(nodesInCycles, modulesFoundInOwners, nodesToGraph)
 
 	// --- Kahn's Algorithm for Leveling ---
 	runningInDegree := make(map[string]int)
 	for node, degree := range initialInDegree {
 		runningInDegree[node] = degree
-	} // Use degrees for final nodes
+	}
+
 	queue := []string{}
-	for node := range finalNodesToGraph {
-		degree, ok := runningInDegree[node]
-		if ok && degree == 0 && !nodesInCycles[node] {
+	for node, degree := range runningInDegree {
+		// Start with nodes that have no dependencies *and* are not part of a detected cycle
+		if degree == 0 && !nodesInCycles[node] {
 			queue = append(queue, node)
-		} else if !ok && !nodesInCycles[node] && len(finalNodesToGraph) > 0 {
-			log.Warnf("Node %s in final graph but missing from initial degree map.", node)
 		}
 	}
 	sort.Strings(queue)
-	processedNodes := make(map[string]bool)
-	processedForOutput := make(map[string]bool)
+
+	processedNodes := make(map[string]bool)     // Track processed nodes (acyclic, cycle, post-cycle)
+	processedForOutput := make(map[string]bool) // Track nodes printed to avoid duplicates in A<->B pairs
 	levelCounter := 0
 	fmt.Println("Topological Sort Levels (Leaves First):")
 
-	// 1. Process Acyclic Levels
+	// 1. Process Acyclic Levels Before Cycles
 	log.LogVf("Processing pre-cycle levels...")
 	for len(queue) > 0 {
 		currentLevelSize := len(queue)
 		currentLevelNodes := make([]string, 0, currentLevelSize)
 		nextQueue := []string{}
+
 		log.LogVf("  Queue for Level %d: %v", levelCounter, queue)
+
 		for i := 0; i < currentLevelSize; i++ {
 			u := queue[i]
+			// Double check it's not a cycle node (shouldn't be, based on initial queue population)
 			if nodesInCycles[u] {
+				log.Warnf("Node %s found in queue but marked as cycle node. Skipping for now.", u)
 				continue
 			}
 			currentLevelNodes = append(currentLevelNodes, u)
 			processedNodes[u] = true
-			neighbors := reverseAdj[u]
+
+			// Process nodes that depend on u
+			neighbors := reverseAdj[u] // Nodes that depend on u
 			sort.Strings(neighbors)
 			for _, v := range neighbors {
-				if finalNodesToGraph[v] && !processedNodes[v] && !nodesInCycles[v] {
+				// Only decrement degree if the dependent node v hasn't been processed yet
+				if !processedNodes[v] && !nodesInCycles[v] { // Don't process nodes already processed or known cycle nodes yet
 					runningInDegree[v]--
 					if runningInDegree[v] == 0 {
 						nextQueue = append(nextQueue, v)
@@ -588,32 +545,41 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 				}
 			}
 		}
-		printLevel(currentLevelNodes, levelCounter, "", modulesFoundInOwners, forkDependsOnAnyInternal, bidirPairs, isBidirNode, processedForOutput, "")
+
+		// Print the completed level
+		printLevel(currentLevelNodes, levelCounter, "", modulesFoundInOwners, bidirPairs, isBidirNode, processedForOutput, "")
+
+		// Prepare for next level
 		sort.Strings(nextQueue)
 		queue = nextQueue
 		levelCounter++
-	}
+	} // End of pre-cycle levels loop
 
-	// 2. Process Cycle Level
+	// 2. Process the Cycle Level
 	log.LogVf("Processing cycle level...")
 	cycleNodesList := make([]string, 0, len(nodesInCycles))
 	for node := range nodesInCycles {
-		if finalNodesToGraph[node] {
-			cycleNodesList = append(cycleNodesList, node)
-			processedNodes[node] = true
-		}
+		cycleNodesList = append(cycleNodesList, node)
+		processedNodes[node] = true // Mark cycle nodes as processed
 	}
 	sort.Strings(cycleNodesList)
+
 	if len(cycleNodesList) > 0 {
-		printLevel(cycleNodesList, levelCounter, "", modulesFoundInOwners, forkDependsOnAnyInternal, bidirPairs, isBidirNode, processedForOutput, " (Cycles)")
-		queue = []string{}
+		// Print the cycle level
+		printLevel(cycleNodesList, levelCounter, "", modulesFoundInOwners, bidirPairs, isBidirNode, processedForOutput, " (Cycles)")
+
+		// Prepare queue for post-cycle levels:
+		// Iterate through cycle nodes and decrement the degrees of their dependents.
+		// Add dependents to the queue if their degree becomes 0.
+		queue = []string{} // Reset queue
 		for _, cycleNode := range cycleNodesList {
-			dependents := reverseAdj[cycleNode]
-			sort.Strings(dependents)
+			dependents := reverseAdj[cycleNode] // Nodes that depend on this cycleNode
+			sort.Strings(dependents)            // Ensure deterministic order
 			for _, dependent := range dependents {
-				if finalNodesToGraph[dependent] && !processedNodes[dependent] {
+				if !processedNodes[dependent] { // If the dependent hasn't been processed
 					runningInDegree[dependent]--
 					if runningInDegree[dependent] == 0 {
+						// Check if it's already queued to avoid duplicates
 						alreadyQueued := false
 						for _, qn := range queue {
 							if qn == dependent {
@@ -625,15 +591,18 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 							queue = append(queue, dependent)
 						}
 					} else if runningInDegree[dependent] < 0 {
-						log.Warnf("In-degree for %s negative after cycle node %s. Degree: %d", dependent, cycleNode, runningInDegree[dependent])
+						// This might happen if a node depends on multiple cycle nodes.
+						// It should have been caught earlier if it depended only on cycle nodes,
+						// but log it just in case.
+						log.Warnf("In-degree for %s became negative after processing cycle node %s. Current degree: %d", dependent, cycleNode, runningInDegree[dependent])
 					}
 				}
 			}
 		}
 		sort.Strings(queue)
-		levelCounter++
+		levelCounter++ // Increment level counter *after* cycle level
 	} else {
-		log.LogVf("No cycle nodes detected or remaining in the graph.")
+		log.LogVf("No cycle nodes detected or remaining.")
 	}
 
 	// 3. Process Post-Cycle Levels
@@ -642,51 +611,60 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		currentLevelSize := len(queue)
 		currentLevelNodes := make([]string, 0, currentLevelSize)
 		nextQueue := []string{}
+
 		log.LogVf("  Queue for Level %d: %v", levelCounter, queue)
+
 		for i := 0; i < currentLevelSize; i++ {
 			u := queue[i]
+			// Ensure it hasn't been processed somehow (e.g., added to queue multiple times)
 			if processedNodes[u] {
+				log.Warnf("Node %s found in post-cycle queue but already processed. Skipping.", u)
 				continue
 			}
 			currentLevelNodes = append(currentLevelNodes, u)
 			processedNodes[u] = true
-			neighbors := reverseAdj[u]
+
+			// Process nodes that depend on u
+			neighbors := reverseAdj[u] // Nodes that depend on u
 			sort.Strings(neighbors)
 			for _, v := range neighbors {
-				if finalNodesToGraph[v] && !processedNodes[v] {
+				// Only decrement degree if the dependent node v hasn't been processed yet
+				if !processedNodes[v] {
 					runningInDegree[v]--
 					if runningInDegree[v] == 0 {
 						nextQueue = append(nextQueue, v)
 					} else if runningInDegree[v] < 0 {
-						log.Errf("BUG: Negative in-degree for %s after processing %s post-cycle", v, u)
+						log.Errf("BUG: Negative in-degree for %s after processing %s in post-cycle", v, u)
 					}
 				}
 			}
 		}
-		printLevel(currentLevelNodes, levelCounter, "", modulesFoundInOwners, forkDependsOnAnyInternal, bidirPairs, isBidirNode, processedForOutput, "")
+
+		// Print the completed level
+		printLevel(currentLevelNodes, levelCounter, "", modulesFoundInOwners, bidirPairs, isBidirNode, processedForOutput, "")
+
+		// Prepare for next level
 		sort.Strings(nextQueue)
 		queue = nextQueue
 		levelCounter++
-	}
+	} // End of post-cycle levels loop
 
-	// Final Check
-	processedGraphNodesCount := 0
-	for node := range finalNodesToGraph {
-		if processedNodes[node] {
-			processedGraphNodesCount++
-		}
-	} // Check against finalNodesToGraph
-	if processedGraphNodesCount != len(finalNodesToGraph) {
-		log.Warnf("Processed %d nodes, but expected %d final graph nodes.", processedGraphNodesCount, len(finalNodesToGraph))
+	// Final Check: Ensure all nodes were processed
+	if len(processedNodes) != len(nodesToGraph) {
+		log.Warnf("Processed %d nodes, but expected %d. Some nodes might be unreachable or part of unhandled graph structures.", len(processedNodes), len(nodesToGraph))
 		unprocessed := []string{}
-		for node := range finalNodesToGraph {
+		for node := range nodesToGraph {
 			if !processedNodes[node] {
 				unprocessed = append(unprocessed, node)
 			}
 		}
 		sort.Strings(unprocessed)
-		log.Warnf("Unprocessed final graph nodes: %v", unprocessed)
+		log.Warnf("Unprocessed nodes: %v", unprocessed)
 	} else {
-		log.Infof("Topological sort processed all %d final graph nodes.", len(finalNodesToGraph))
+		log.Infof("Topological sort processed all %d nodes.", len(processedNodes))
 	}
 }
+
+// --- End Topological Sort Logic ---
+
+// --- End Graph Generation Logic ---

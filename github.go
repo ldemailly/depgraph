@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-
 	// "fmt" // Removed unused import
 	"net/http"
 	"strconv"
@@ -23,7 +22,6 @@ type ModuleInfo struct {
 	OwnerIdx           int               // Index of the owner in the input list (for coloring)
 	Deps               map[string]string // path -> version
 	Fetched            bool              // Indicates if the go.mod was successfully fetched and parsed
-	TreatAsExternal    bool              // NEW: If true, treat this node as external in graph output, even if found in owners (used for forks covering original paths)
 }
 
 // --- End Structs ---
@@ -33,8 +31,7 @@ type ModuleInfo struct {
 func isNotFoundError(err error) bool {
 	var ge *github.ErrorResponse
 	if errors.As(err, &ge) {
-		// Consider both 404 and 403 (sometimes returned for private repos/users) as "not found" for our purpose
-		return ge.Response.StatusCode == http.StatusNotFound || ge.Response.StatusCode == http.StatusForbidden
+		return ge.Response.StatusCode == http.StatusNotFound
 	}
 	return false
 }
@@ -68,7 +65,6 @@ func (cw *ClientWrapper) getCachedListByOrg(ctx context.Context, owner string, o
 	hit, readErr := readCache(cacheKey, &cachedData, cw.useCache)
 	if readErr != nil {
 		log.Errf("Error reading cache for %v: %v", keyParts, readErr)
-		// Don't treat read error as fatal, proceed as cache miss
 	}
 	if hit {
 		log.LogVf("Cache hit for ListByOrg owner=%s page=%d", owner, opt.Page)
@@ -78,13 +74,12 @@ func (cw *ClientWrapper) getCachedListByOrg(ctx context.Context, owner string, o
 	log.Infof("Cache miss for ListByOrg owner=%s page=%d, calling API", owner, opt.Page)
 	repos, resp, apiErr := cw.client.Repositories.ListByOrg(ctx, owner, opt)
 	if apiErr != nil {
-		return nil, resp, apiErr // Return API error
+		return nil, resp, apiErr
 	}
 	dataToCache := CachedListResponse{Repos: repos, NextPage: resp.NextPage}
 	writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
 	if writeErr != nil {
 		log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
-		// Don't treat write error as fatal
 	}
 	return repos, resp, nil
 }
@@ -131,11 +126,9 @@ func (cw *ClientWrapper) getCachedGetContents(ctx context.Context, owner, repo, 
 	if hit {
 		if !cachedData.Found {
 			log.LogVf("Cache hit indicates Not Found for GetContents repo=%s/%s path=%s ref=%s", owner, repo, path, ref)
-			// Return nil for file/dir content, but a valid (empty) response to signal cache hit
 			return nil, nil, &github.Response{}, nil
 		} else {
 			log.LogVf("Cache hit indicates Found for GetContents repo=%s/%s path=%s ref=%s", owner, repo, path, ref)
-			// Return cached content and empty response
 			return cachedData.FileContent, nil, &github.Response{}, nil
 		}
 	}
@@ -143,24 +136,19 @@ func (cw *ClientWrapper) getCachedGetContents(ctx context.Context, owner, repo, 
 	log.Infof("Cache miss for GetContents repo=%s/%s path=%s ref=%s, calling API", owner, repo, path, ref)
 	fileContent, dirContent, resp, apiErr := cw.client.Repositories.GetContents(ctx, owner, repo, path, opt)
 
-	// Check for 404 specifically *after* the API call
 	if apiErr != nil {
 		if isNotFoundError(apiErr) {
 			log.LogVf("API reported Not Found for GetContents repo=%s/%s path=%s ref=%s. Caching result.", owner, repo, path, ref)
-			dataToCache := CachedContentResponse{Found: false} // Cache the not-found status
+			dataToCache := CachedContentResponse{Found: false}
 			writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
 			if writeErr != nil {
 				log.Errf("Error writing 'Not Found' cache for %v: %v", keyParts, writeErr)
 			}
-			// Return nil content, the original response (containing 404), and the original error
-			return nil, nil, resp, apiErr
+			return nil, nil, resp, nil
 		} else {
-			// Return other API errors directly
 			return nil, nil, resp, apiErr
 		}
 	}
-
-	// If no error and fileContent is not nil, cache the found status and content
 	if fileContent != nil {
 		dataToCache := CachedContentResponse{Found: true, FileContent: fileContent}
 		writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
@@ -168,20 +156,9 @@ func (cw *ClientWrapper) getCachedGetContents(ctx context.Context, owner, repo, 
 			log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
 		}
 	} else {
-		// Don't cache directory listings or if fileContent is nil for some reason
-		log.LogVf("Skipping cache write for directory listing or nil file content: %v", keyParts)
-		// Still need to cache the "found" status for directories? Maybe not necessary.
-		// Let's cache directories as "Not Found" for simplicity, as we only care about go.mod files.
-		if dirContent != nil {
-			dataToCache := CachedContentResponse{Found: false}
-			writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
-			if writeErr != nil {
-				log.Errf("Error writing 'Not Found' (directory) cache for %v: %v", keyParts, writeErr)
-			}
-		}
+		log.LogVf("Skipping cache write for directory listing: %v", keyParts)
 	}
 
-	// Return the actual results from the API call
 	return fileContent, dirContent, resp, nil
 }
 
@@ -196,28 +173,19 @@ func (cw *ClientWrapper) getCachedGetRepo(ctx context.Context, owner, repo strin
 	}
 	if hit {
 		log.LogVf("Cache hit for GetRepo owner=%s repo=%s", owner, repo)
-		// Check if cached repo is nil, might happen if previous fetch failed but was cached improperly
-		if cachedData.Repo == nil {
-			log.Warnf("Cache hit for GetRepo %s/%s but cached data is nil, treating as miss.", owner, repo)
-		} else {
-			return cachedData.Repo, &github.Response{}, nil // Return minimal response on hit
-		}
+		return cachedData.Repo, &github.Response{}, nil // Return minimal response on hit
 	}
 
 	log.Infof("Cache miss for GetRepo owner=%s repo=%s, calling API", owner, repo)
 	fullRepo, resp, apiErr := cw.client.Repositories.Get(ctx, owner, repo)
 	if apiErr != nil {
-		// Do not cache errors for GetRepo, as they might be transient
 		return nil, resp, apiErr
 	}
 
-	// Only cache successful responses
-	if fullRepo != nil {
-		dataToCache := CachedRepoResponse{Repo: fullRepo}
-		writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
-		if writeErr != nil {
-			log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
-		}
+	dataToCache := CachedRepoResponse{Repo: fullRepo}
+	writeErr := writeCache(cacheKey, dataToCache, cw.useCache)
+	if writeErr != nil {
+		log.Errf("Error writing cache for %v: %v", keyParts, writeErr)
 	}
 	return fullRepo, resp, nil
 }
