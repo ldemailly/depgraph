@@ -99,7 +99,7 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool) {
 	// --- Generate DOT Output ---
 	fmt.Println("digraph dependencies {")
-	fmt.Println("  rankdir=\"LR\";")
+	fmt.Println("  rankdir=\"TB\";") // Changed from LR to TB
 	fmt.Println("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];")
 	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];")
 
@@ -128,12 +128,19 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				// It's a fork. Style as internal fork (color and label).
 				ownerIdx := info.OwnerIdx
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
-				// --- Fork Labeling Logic ---
+				// --- Updated Fork Labeling Logic ---
 				label = info.RepoPath // Primary label is repo path for qualified forks
-				if info.OriginalModulePath != "" && info.Path != info.OriginalModulePath {
-					label = fmt.Sprintf("%s\\n(module: %s)", info.RepoPath, info.Path)
+				// Add descriptive suffix if original path was found
+				if info.OriginalModulePath != "" {
+					if info.Path == info.OriginalModulePath {
+						// Path matches original: RepoPath\n(fork of OriginalPath)
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath) // Use \n
+					} else {
+						// Path differs: RepoPath\n(DeclaredPath fork of OriginalPath)
+						label = fmt.Sprintf("%s\\n(%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath) // Use \n
+					}
 				}
-				// --- End Fork Labeling Logic ---
+				// --- End Updated Fork Labeling Logic ---
 			}
 		} else if noExt {
 			continue
@@ -295,9 +302,15 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 			// Look up info to customize output for forks
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
 				outputStr = info.RepoPath // Use repo path for forks
-				// Append original module path if it was found (regardless of whether it differs now)
+				// Append original module path if it was found
 				if info.OriginalModulePath != "" {
-					outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
+					if info.Path == info.OriginalModulePath {
+						// Path matches original: RepoPath (fork of OriginalPath) - single line for text
+						outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
+					} else {
+						// Path differs: RepoPath (DeclaredPath fork of OriginalPath) - single line for text
+						outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
+					}
 				}
 			}
 			fmt.Printf("%s  - %s\n", indent, outputStr)
