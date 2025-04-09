@@ -173,7 +173,7 @@ func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners ma
 }
 
 // determineNodesToGraph calculates the set of nodes to include in the final graph
-func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool) map[string]bool {
+func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool, noSamePathForks bool) map[string]bool {
 	nodesToGraph := make(map[string]bool)
 	referencedModules := make(map[string]bool)       // Modules depended on by included nodes (non-forks or included forks)
 	forksDependingOnNonFork := make(map[string]bool) // Forks (by module path) that depend on an included non-fork
@@ -209,6 +209,13 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 	log.Infof("Determining graph nodes: Pass 3 (Include qualifying Forks)")
 	for modPath, info := range modulesFoundInOwners {
 		if info.Fetched && info.IsFork {
+			// New check for -no-forks flag
+			if noSamePathForks && info.OriginalModulePath != "" && info.Path == info.OriginalModulePath {
+				log.LogVf("  Excluding fork '%s' (from %s) because it has same module path as origin and --no-forks is set",
+					modPath, info.RepoPath)
+				continue
+			}
+
 			includeReason := ""
 			// Include fork if it depends on a non-fork OR if a non-fork depends on its module path
 			if forksDependingOnNonFork[modPath] {
@@ -293,6 +300,9 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 	sort.Strings(sortedNodes)
 
 	for _, nodePath := range sortedNodes {
+		// Enhanced node labeling for DOT output in generateDotOutput
+		// (within the node definitions section)
+		// Inside generateDotOutput function in graph.go
 		label := nodePath // Default label is the node path (module path)
 		color := externalColor
 		nodeAttrs := []string{}
@@ -305,17 +315,22 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				// Label remains nodePath
 			} else {
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
-				// *** Fork Labeling Logic for DOT Output (Multi-line using RepoPath) ***
-				// Use RepoPath consistently for the first line, based on user feedback/examples.
-				// Use \\n in Sprintf format string to produce literal \n in the label for DOT.
+				// *** Enhanced Fork Labeling Logic for DOT Output (Multi-line using RepoPath) ***
 				if info.OriginalModulePath != "" {
-					label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
+					if info.Path == info.OriginalModulePath {
+						// This is a fork that kept the original module path
+						label = fmt.Sprintf("%s\\n(fork of %s, same module path)", info.RepoPath, info.ParentRepoPath)
+					} else {
+						// Fork with different module path than original
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
+					}
 				} else {
 					// Fallback if original path couldn't be found
 					label = fmt.Sprintf("%s\\n(fork)", info.RepoPath)
 				}
-				// *** End Fork Labeling Logic ***
+				// *** End Enhanced Fork Labeling Logic ***
 			}
+
 		} else if noExt {
 			continue // Skip external nodes if noExt is true
 		}
@@ -334,8 +349,8 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 		}
 
 		fmt.Printf("  \"%s\" [%s];\n", nodePath, strings.Join(nodeAttrs, ", "))
-	}
 
+	}
 	fmt.Println("\n  // Edges (Dependencies)")
 	sourceModulesInGraph := []string{}
 	for modPath := range modulesFoundInOwners {

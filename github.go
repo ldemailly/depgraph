@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+
 	// "fmt" // Removed unused import
 	"net/http"
 	"strconv"
@@ -14,10 +15,11 @@ import (
 // --- Structs ---
 // ModuleInfo stores details about modules found in the scanned owners (orgs or users)
 type ModuleInfo struct {
-	Path               string // Module path from go.mod
-	RepoPath           string // Repository path (owner/repo) where it was found
-	IsFork             bool
+	Path               string            // Module path from go.mod
+	RepoPath           string            // Repository path (owner/repo) where it was found
+	IsFork             bool              // Whether this repo is a fork
 	OriginalModulePath string            // Module path from the parent repo's go.mod (if fork)
+	ParentRepoPath     string            // Repository path of the parent (owner/repo) (if fork)
 	Owner              string            // Owner (org or user) where the module definition was found
 	OwnerIdx           int               // Index of the owner in the input list (for coloring)
 	Deps               map[string]string // path -> version

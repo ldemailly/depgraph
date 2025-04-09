@@ -22,6 +22,8 @@ func main() {
 	clearCacheFlag := flag.Bool("clear-cache", false, "Clear the cache directory before running")
 	topoSortFlag := flag.Bool("topo-sort", false, "Output dependencies in topological sort order by level (text format, disables DOT output)")
 	left2RightFlag := flag.Bool("left2right", false, "Generate graph left-to-right instead of top-to-bottom (default)") // New flag
+	// New flag for excluding forks that retain the original module path
+	noSamePathForksFlag := flag.Bool("no-forks", false, "Exclude forks that have the same module path as their origin")
 
 	// Configure and run fortio/cli to handle flags and args
 	cli.ArgsHelp = "owner1 [owner2...]" // Set custom usage text for arguments
@@ -153,6 +155,8 @@ func main() {
 				originalModulePath := ""
 				// --- Fetch Parent Info for Forks ---
 				var parentRepoInfo *github.Repository // To store parent info if fetched
+
+				// --- Fetch Parent Info for Forks ---
 				if isFork {
 					log.LogVf("      Repo %s is a fork. Fetching full repo details...", repoPath)
 					fullRepo, _, errGet := client.getCachedGetRepo(ctx, repoOwnerLogin, repoName) // Fetch full details
@@ -184,10 +188,22 @@ func main() {
 						} else {
 							log.LogVf("        Parent go.mod not found for %s", parentRepoPath)
 						}
-					} else {
-						log.LogVf("      Fork %s has no parent info in full details.", repoPath)
+						// Store parent repo path in ModuleInfo
+						info := &ModuleInfo{
+							Path:               modulePath,
+							RepoPath:           repoPath,
+							IsFork:             isFork,
+							OriginalModulePath: originalModulePath,
+							ParentRepoPath:     parentRepoPath, // Store parent repo path
+							Owner:              owner,
+							OwnerIdx:           i,
+							Deps:               make(map[string]string),
+							Fetched:            true,
+						}
+						modulesFoundInOwners[modulePath] = info
 					}
 				}
+
 				// --- End Fetch Parent Info ---
 
 				info := &ModuleInfo{Path: modulePath, RepoPath: repoPath, IsFork: isFork, OriginalModulePath: originalModulePath, Owner: owner, OwnerIdx: i, Deps: make(map[string]string), Fetched: true}
@@ -225,7 +241,8 @@ func main() {
 	// --- End Scan Owners ---
 
 	// --- Determine Nodes to Include in Graph ---
-	nodesToGraph := determineNodesToGraph(modulesFoundInOwners, allModulePaths, noExt)
+	// Modified: Pass the new flag to determineNodesToGraph
+	nodesToGraph := determineNodesToGraph(modulesFoundInOwners, allModulePaths, noExt, *noSamePathForksFlag)
 	// --- End Determine Nodes to Include in Graph ---
 
 	// --- Generate Output ---
