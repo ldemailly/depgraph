@@ -233,13 +233,14 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 			} else {
 				ownerIdx := info.OwnerIdx
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
-				label = info.RepoPath
 				if info.OriginalModulePath != "" {
 					if info.Path == info.OriginalModulePath {
 						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
 					} else {
-						label = fmt.Sprintf("%s\\n(%s fork of %s)", info.Path, info.OriginalModulePath) // Use Declared Path
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.Path, info.OriginalModulePath) // Fixed Sprintf
 					}
+				} else {
+					label = info.RepoPath
 				}
 			}
 		} else if noExt {
@@ -325,6 +326,7 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 	}
 
 	// Build reverse graph and get nodes in cycles (warnings printed inside)
+	// Corrected: Assign return value to variable to use later
 	nodesInCycles := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
 
 	// Re-build reverse graph and in-degrees again for actual level processing
@@ -402,17 +404,18 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 			marker := "" // Marker for bidirectional dependency
 
 			// Check for bidirectional dependency for marker
+			isBidir := false
 			if info, found := modulesFoundInOwners[nodePath]; found {
 				for depPath := range info.Deps {
-					if nodesToGraph[depPath] { // Check if dependency is included
-						// Check if reverse dependency exists using forward adj list
-						if adj[depPath] != nil && adj[depPath][nodePath] {
-							marker = " (*)" // Add marker if bidirectional found
-							break           // Only need to find one
-						}
+					if nodesToGraph[depPath] && adj[depPath] != nil && adj[depPath][nodePath] {
+						isBidir = true
+						break
 					}
 				}
 			}
+			if isBidir {
+				marker = " (*)"
+			} // Add marker if bidirectional found
 
 			// Format fork info
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
@@ -441,6 +444,7 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 			outputStr := nodePath
 			marker := " (*)" // Mark all cyclic nodes
 
+			// Format fork info for cyclic nodes as well
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
 				outputStr = info.RepoPath
 				if info.OriginalModulePath != "" {
