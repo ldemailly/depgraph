@@ -17,6 +17,6 @@ import:
 	git diff -w
 
 export:
-	go run ./aijoin *.go
+	go run ./aijoin *.go README.md dependencies_golang.dot
 
 .PHONY: regen mine golang import
