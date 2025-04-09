@@ -182,21 +182,35 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 // generateDotOutput generates the DOT graph representation and prints it to stdout
 func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
 	// --- Detect Cycles to Highlight Nodes ---
-	// Run the cycle detection part of the topo sort
-	nodesInCyclesSet := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph) // Correctly gets map[string]bool
+	nodesInCyclesSet := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
 	// --- End Detect Cycles ---
+
+	// --- Build Forward Adjacency List for Bidirectional Edge Check ---
+	adj := make(map[string]map[string]bool) // adj[source][dest] = true
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] {
+			continue
+		}
+		if adj[sourceMod] == nil {
+			adj[sourceMod] = make(map[string]bool)
+		}
+		for dep := range info.Deps {
+			if nodesToGraph[dep] {
+				adj[sourceMod][dep] = true
+			}
+		}
+	}
+	// --- End Build Forward Adjacency List ---
 
 	// --- Generate DOT Output ---
 	fmt.Println("digraph dependencies {")
-	// Set rankdir based on flag
 	rankDir := "TB"
 	if left2Right {
 		rankDir = "LR"
 	}
-	fmt.Printf("  rankdir=\"%s\";\n", rankDir) // Use flag value
-	// Define default node style, potentially overridden later for cycle nodes
+	fmt.Printf("  rankdir=\"%s\";\n", rankDir)
 	fmt.Println("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];")
-	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];")
+	fmt.Println("  edge [fontname=\"Helvetica\", fontsize=10];") // Default edge style
 
 	// Define nodes with appropriate colors and labels
 	fmt.Println("\n  // Node Definitions")
@@ -209,60 +223,45 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 	for _, nodePath := range sortedNodes {
 		label := nodePath
 		color := externalColor
-		nodeAttrs := []string{} // Store attributes like label, fillcolor, color
+		nodeAttrs := []string{}
 
-		// Get info about the last scanned repo declaring this module path
 		info, foundInScanned := modulesFoundInOwners[nodePath]
-
 		if foundInScanned {
-			// This module path was declared by at least one repo in the scanned owners.
 			if !info.IsFork {
-				// It's a non-fork. Style as internal non-fork.
 				ownerIdx := info.OwnerIdx
 				color = orgNonForkColors[ownerIdx%len(orgNonForkColors)]
-				// Label remains module path
 			} else {
-				// It's a fork. Style as internal fork (color and label).
 				ownerIdx := info.OwnerIdx
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
-				// --- Updated Fork Labeling Logic ---
-				label = info.RepoPath // Primary label is repo path for qualified forks
+				label = info.RepoPath
 				if info.OriginalModulePath != "" {
 					if info.Path == info.OriginalModulePath {
-						// Path matches original: RepoPath\n(fork of OriginalPath)
-						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath) // Use \n
+						label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
 					} else {
-						// Path differs: DeclaredPath\n(fork of OriginalPath)
-						label = fmt.Sprintf("%s\\n(fork of %s)", info.Path, info.OriginalModulePath) // Use Declared Path
+						label = fmt.Sprintf("%s\\n(%s fork of %s)", info.Path, info.OriginalModulePath) // Use Declared Path
 					}
 				}
-				// --- End Updated Fork Labeling Logic ---
 			}
 		} else if noExt {
 			continue
-		} // Skip external node definition if -noext
-		// Else: External node, color is externalColor, label is nodePath.
+		}
 
-		// Add standard attributes
 		escapedLabel := strings.ReplaceAll(label, "\"", "\\\"")
 		nodeAttrs = append(nodeAttrs, fmt.Sprintf("label=\"%s\"", escapedLabel))
 		nodeAttrs = append(nodeAttrs, fmt.Sprintf("fillcolor=\"%s\"", color))
 
-		// Add cycle highlighting if node is in a cycle
-		if nodesInCyclesSet[nodePath] { // Check against the map
+		if nodesInCyclesSet[nodePath] {
 			log.LogVf("Highlighting cycle node: %s", nodePath)
 			nodeAttrs = append(nodeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Set border color
-			nodeAttrs = append(nodeAttrs, "penwidth=2")                            // Make border thicker
+			nodeAttrs = append(nodeAttrs, "penwidth=2")
 		}
 
-		// Print node definition with all attributes
 		fmt.Printf("  \"%s\" [%s];\n", nodePath, strings.Join(nodeAttrs, ", "))
 	}
 
 	fmt.Println("\n  // Edges (Dependencies)")
 	sourceModulesInGraph := []string{}
 	for modPath := range modulesFoundInOwners {
-		// Only draw edges FROM nodes that are included in the graph
 		if nodesToGraph[modPath] {
 			sourceModulesInGraph = append(sourceModulesInGraph, modPath)
 		}
@@ -271,11 +270,10 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 
 	// Print edges
 	for _, sourceModPath := range sourceModulesInGraph {
-		// Use the info for the source module path
 		info := modulesFoundInOwners[sourceModPath]
 		if info == nil {
 			continue
-		} // Safety check
+		}
 
 		depPaths := make([]string, 0, len(info.Deps))
 		for depPath := range info.Deps {
@@ -287,7 +285,16 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 			if nodesToGraph[depPath] { // Only draw edge if target is included
 				version := info.Deps[depPath]
 				escapedVersion := strings.ReplaceAll(version, "\"", "\\\"")
-				fmt.Printf("  \"%s\" -> \"%s\" [label=\"%s\"];\n", sourceModPath, depPath, escapedVersion)
+				edgeAttrs := []string{fmt.Sprintf("label=\"%s\"", escapedVersion)} // Start with label attribute
+
+				// Check for bidirectional edge
+				if adj[depPath] != nil && adj[depPath][sourceModPath] {
+					log.LogVf("Highlighting bidirectional edge: %s <-> %s", sourceModPath, depPath)
+					edgeAttrs = append(edgeAttrs, fmt.Sprintf("color=\"%s\"", cycleColor)) // Add red color for bidirectional edge
+					edgeAttrs = append(edgeAttrs, "penwidth=1.5")                          // Slightly thicker edge for bidir?
+				}
+
+				fmt.Printf("  \"%s\" -> \"%s\" [%s];\n", sourceModPath, depPath, strings.Join(edgeAttrs, ", "))
 			}
 		}
 	}
@@ -301,8 +308,23 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 // performTopologicalSortAndPrint performs Kahn's algorithm on the REVERSE graph
 // to print levels starting with leaves (nodes with no outgoing edges in original graph).
 func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
+	// Build forward adjacency list needed for bidirectional check marker
+	adj := make(map[string]map[string]bool) // adj[source][dest] = true
+	for sourceMod, info := range modulesFoundInOwners {
+		if !nodesToGraph[sourceMod] {
+			continue
+		}
+		if adj[sourceMod] == nil {
+			adj[sourceMod] = make(map[string]bool)
+		}
+		for dep := range info.Deps {
+			if nodesToGraph[dep] {
+				adj[sourceMod][dep] = true
+			}
+		}
+	}
+
 	// Build reverse graph and get nodes in cycles (warnings printed inside)
-	// Corrected: Use blank identifier for the first return value (inDegree map)
 	nodesInCycles := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
 
 	// Re-build reverse graph and in-degrees again for actual level processing
@@ -377,6 +399,22 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 		fmt.Printf("%sLevel %d:\n", indent, i)
 		for _, nodePath := range level {
 			outputStr := nodePath
+			marker := "" // Marker for bidirectional dependency
+
+			// Check for bidirectional dependency for marker
+			if info, found := modulesFoundInOwners[nodePath]; found {
+				for depPath := range info.Deps {
+					if nodesToGraph[depPath] { // Check if dependency is included
+						// Check if reverse dependency exists using forward adj list
+						if adj[depPath] != nil && adj[depPath][nodePath] {
+							marker = " (*)" // Add marker if bidirectional found
+							break           // Only need to find one
+						}
+					}
+				}
+			}
+
+			// Format fork info
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
 				outputStr = info.RepoPath
 				if info.OriginalModulePath != "" {
@@ -387,23 +425,22 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 					}
 				}
 			}
-			fmt.Printf("%s  - %s\n", indent, outputStr)
+			fmt.Printf("%s  - %s%s\n", indent, outputStr, marker) // Append marker
 		}
 	}
 
 	// Print nodes involved in cycles (if any)
-	// Check if cycles were detected by comparing processed count
 	if processedCount < len(nodesInSort) {
 		fmt.Println("\nCyclic Dependencies (cannot be ordered):")
 		remainingNodes := []string{}
-		// Iterate through the map returned by the initial cycle check run
 		for node := range nodesInCycles { // Use the map returned earlier
 			remainingNodes = append(remainingNodes, node)
 		}
 		sort.Strings(remainingNodes) // Sort cyclic nodes alphabetically
 		for _, nodePath := range remainingNodes {
-			// Format output similar to leveled output
 			outputStr := nodePath
+			marker := " (*)" // Mark all cyclic nodes
+
 			if info, found := modulesFoundInOwners[nodePath]; found && info.IsFork {
 				outputStr = info.RepoPath
 				if info.OriginalModulePath != "" {
@@ -414,7 +451,7 @@ func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo,
 					}
 				}
 			}
-			fmt.Printf("  - %s\n", outputStr) // Print with standard indent
+			fmt.Printf("  - %s%s\n", outputStr, marker) // Print with standard indent and marker
 		}
 	}
 }
