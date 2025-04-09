@@ -293,28 +293,46 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 	sort.Strings(sortedNodes)
 
 	for _, nodePath := range sortedNodes {
-		label := nodePath
+		label := nodePath // Default label is the node path (module path)
 		color := externalColor
 		nodeAttrs := []string{}
 
 		info, foundInScanned := modulesFoundInOwners[nodePath]
 		if foundInScanned {
+			ownerIdx := info.OwnerIdx
 			if !info.IsFork {
-				ownerIdx := info.OwnerIdx
 				color = orgNonForkColors[ownerIdx%len(orgNonForkColors)]
+				// Label remains nodePath
 			} else {
-				ownerIdx := info.OwnerIdx
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
-				// Use the same fork formatting logic as in topo sort
-				label = formatNodeForTopo(nodePath, modulesFoundInOwners) // Use helper
+				// *** Fork Labeling Logic for DOT Output (Multi-line) ***
+				if info.OriginalModulePath != "" {
+					// Check if the node key (nodePath) matches the fork's declared path
+					if nodePath == info.Path {
+						// Use fork's declared path on the first line
+						// Use \n for newline, fmt.Sprintf handles Go string literal
+						label = fmt.Sprintf("%s\n(fork of %s)", info.Path, info.OriginalModulePath)
+					} else {
+						// Use the fork's repo path on the first line (e.g., when node key is the original path)
+						// Use \n for newline
+						label = fmt.Sprintf("%s\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
+					}
+				} else {
+					// Fallback if original path couldn't be found
+					// Use \n for newline
+					label = fmt.Sprintf("%s\n(fork)", info.RepoPath)
+				}
+				// *** End Fork Labeling Logic ***
 			}
 		} else if noExt {
 			continue // Skip external nodes if noExt is true
 		}
 
-		// Escape label for DOT format, handling potential backslashes from formatNodeForTopo
-		escapedLabel := strings.ReplaceAll(label, "\\", "\\\\")       // Escape backslashes first
-		escapedLabel = strings.ReplaceAll(escapedLabel, "\"", "\\\"") // Then escape quotes
+		// Escape label for DOT format AFTER generating it with potential newlines.
+		// Escape literal backslashes first (important if paths contain them).
+		escapedLabel := strings.ReplaceAll(label, "\\", "\\\\")
+		// Then escape double quotes. Newlines (\n) are NOT escaped here.
+		escapedLabel = strings.ReplaceAll(escapedLabel, "\"", "\\\"")
 		nodeAttrs = append(nodeAttrs, fmt.Sprintf("label=\"%s\"", escapedLabel))
 		nodeAttrs = append(nodeAttrs, fmt.Sprintf("fillcolor=\"%s\"", color))
 
@@ -373,7 +391,7 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 
 // --- Topological Sort Logic ---
 
-// Helper function to format node output for topo sort
+// Helper function to format node output for topo sort (SINGLE LINE format)
 func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleInfo) string {
 	// Default output is module path
 	outputStr := nodePath
@@ -388,8 +406,6 @@ func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleI
 				outputStr = fmt.Sprintf("%s (fork of %s)", info.RepoPath, info.OriginalModulePath)
 			} else {
 				// Path differs: RepoPath (DeclaredPath fork of OriginalPath)
-				// Use \n for potential line break in DOT, but it will be literal in text output.
-				// Keep as single line for text topo sort for simplicity.
 				outputStr = fmt.Sprintf("%s (%s fork of %s)", info.RepoPath, info.Path, info.OriginalModulePath)
 			}
 		} else {
@@ -425,21 +441,15 @@ func printLevel(levelNodes []string, levelIndex int, indent string, modulesFound
 		_, partnerInLevel := levelSet[partner]       // Is the partner B also in this level?
 
 		if isPairStart && partnerInLevel { // Is it A in A<->B and B is also in this level?
-			// Print combined format
+			// Print combined format using the text-based helper
 			formattedA := formatNodeForTopo(nodePath, modulesFoundInOwners)
 			formattedB := formatNodeForTopo(partner, modulesFoundInOwners)
 			fmt.Printf("%s  - %s <-> %s\n", indent, formattedA, formattedB)
 			processedForOutput[nodePath] = true
 			processedForOutput[partner] = true
 		} else {
-			// Print individually
+			// Print individually using the text-based helper
 			marker := ""
-			// Mark if it's part of *any* A<->B pair, even if partner isn't in this level
-			// (This helps identify nodes involved in simple cycles even if split across levels by complex dependencies)
-			// However, for the new approach, maybe only mark within the cycle level? Let's remove the marker for now.
-			// if isBidirNode[nodePath] && !isPairStart { // Mark B if A wasn't in this level
-			// 	marker = " (*)"
-			// }
 			outputStr := formatNodeForTopo(nodePath, modulesFoundInOwners) // Format fork info
 			fmt.Printf("%s  - %s%s\n", indent, outputStr, marker)
 			processedForOutput[nodePath] = true
