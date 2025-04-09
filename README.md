@@ -120,43 +120,43 @@ Level 0:
   - gitlab.com/ldemailly/go-flag-bug
   - ldemailly/zap (fork of go.uber.org/zap)
   - ldemailly/term (fork of golang.org/x/term)
-  Level 1:
-    - fortio.org/log
-    - fortio.org/sets
-    Level 2:
-      - fortio.org/cli
-      - fortio.org/dflag
-      - github.com/ldemailly/advent24
-      - github.com/ldemailly/panic-linter
-      Level 3:
-        - fortio.org/multicurl
-        - fortio.org/scli
-        - fortio.org/terminal
-        - github.com/fortio/delta
-        - github.com/fortio/h2cli
-        - github.com/ldemailly/depgraph
-        - github.com/ldemailly/lll-fixer
-        - github.com/ldemailly/quartiles
-        - github.com/ldemailly/rate
-        Level 4:
-          - fortio.org/logc
-          - github.com/fortio/logger-bench
-          - github.com/fortio/workflows
-          - grol.io/grol
-          Level 5:
-            - fortio.org/fortio
-            - grol.io/grol-discord-bot
-            - grol-io/scriggo-bench (fork of scriggo-bench)
-            Level 6:
-              - fortio.org/dnsping
-              - fortio.org/fortiotel
-              - fortio.org/memstore
-              - fortio.org/proxy
-              - fortio.org/slack-proxy
-              - fortio.org/terminal/fps
-              - github.com/fortio/semtest/v2
-              - github.com/ldemailly/go-scratch
-              - github.com/ldemailly/gohook_sample
+Level 1:
+  - fortio.org/log
+  - fortio.org/sets
+Level 2:
+  - fortio.org/cli
+  - fortio.org/dflag
+  - github.com/ldemailly/advent24
+  - github.com/ldemailly/panic-linter
+Level 3:
+  - fortio.org/multicurl
+  - fortio.org/scli
+  - fortio.org/terminal
+  - github.com/fortio/delta
+  - github.com/fortio/h2cli
+  - github.com/ldemailly/depgraph
+  - github.com/ldemailly/lll-fixer
+  - github.com/ldemailly/quartiles
+  - github.com/ldemailly/rate
+Level 4:
+  - fortio.org/logc
+  - github.com/fortio/logger-bench
+  - github.com/fortio/workflows
+  - grol.io/grol
+Level 5:
+  - fortio.org/fortio
+  - grol.io/grol-discord-bot
+  - grol-io/scriggo-bench (fork of scriggo-bench)
+Level 6:
+  - fortio.org/dnsping
+  - fortio.org/fortiotel
+  - fortio.org/memstore
+  - fortio.org/proxy
+  - fortio.org/slack-proxy
+  - fortio.org/terminal/fps
+  - github.com/fortio/semtest/v2
+  - github.com/ldemailly/go-scratch
+  - github.com/ldemailly/gohook_sample
 ```
 
 **Cycle Handling in Topological Sort:**

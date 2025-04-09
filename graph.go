@@ -305,22 +305,14 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 				// Label remains nodePath
 			} else {
 				color = orgForkColors[ownerIdx%len(orgForkColors)]
-				// *** Fork Labeling Logic for DOT Output (Multi-line) ***
+				// *** Fork Labeling Logic for DOT Output (Multi-line using RepoPath) ***
+				// Use RepoPath consistently for the first line, based on user feedback/examples.
+				// Use \\n in Sprintf format string to produce literal \n in the label for DOT.
 				if info.OriginalModulePath != "" {
-					// Check if the node key (nodePath) matches the fork's declared path
-					if nodePath == info.Path {
-						// Use fork's declared path on the first line
-						// Use \n for newline, fmt.Sprintf handles Go string literal
-						label = fmt.Sprintf("%s\n(fork of %s)", info.Path, info.OriginalModulePath)
-					} else {
-						// Use the fork's repo path on the first line (e.g., when node key is the original path)
-						// Use \n for newline
-						label = fmt.Sprintf("%s\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
-					}
+					label = fmt.Sprintf("%s\\n(fork of %s)", info.RepoPath, info.OriginalModulePath)
 				} else {
 					// Fallback if original path couldn't be found
-					// Use \n for newline
-					label = fmt.Sprintf("%s\n(fork)", info.RepoPath)
+					label = fmt.Sprintf("%s\\n(fork)", info.RepoPath)
 				}
 				// *** End Fork Labeling Logic ***
 			}
@@ -328,11 +320,9 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 			continue // Skip external nodes if noExt is true
 		}
 
-		// Escape label for DOT format AFTER generating it with potential newlines.
-		// Escape literal backslashes first (important if paths contain them).
-		escapedLabel := strings.ReplaceAll(label, "\\", "\\\\")
-		// Then escape double quotes. Newlines (\n) are NOT escaped here.
-		escapedLabel = strings.ReplaceAll(escapedLabel, "\"", "\\\"")
+		// Escape label for DOT format AFTER generating it.
+		// Only escape double quotes. The \\n from Sprintf should remain as \n.
+		escapedLabel := strings.ReplaceAll(label, "\"", "\\\"")
 		nodeAttrs = append(nodeAttrs, fmt.Sprintf("label=\"%s\"", escapedLabel))
 		nodeAttrs = append(nodeAttrs, fmt.Sprintf("fillcolor=\"%s\"", color))
 

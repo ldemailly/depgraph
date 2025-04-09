@@ -130,7 +130,7 @@
 <g id="node22" class="node">
 <title>fortio.org/testscript</title>
 <path fill="steelblue" stroke="black" d="M1482.5,-1560C1482.5,-1560 1245.25,-1560 1245.25,-1560 1239.25,-1560 1233.25,-1554 1233.25,-1548 1233.25,-1548 1233.25,-1534 1233.25,-1534 1233.25,-1528 1239.25,-1522 1245.25,-1522 1245.25,-1522 1482.5,-1522 1482.5,-1522 1488.5,-1522 1494.5,-1528 1494.5,-1534 1494.5,-1534 1494.5,-1548 1494.5,-1548 1494.5,-1554 1488.5,-1560 1482.5,-1560"/>
-<text text-anchor="middle" x="1363.88" y="-1542.7" font-family="Helvetica,sans-Serif" font-size="14.00">fortio.org/testscript</text>
+<text text-anchor="middle" x="1363.88" y="-1542.7" font-family="Helvetica,sans-Serif" font-size="14.00">fortio/testscript</text>
 <text text-anchor="middle" x="1363.88" y="-1527.7" font-family="Helvetica,sans-Serif" font-size="14.00">(fork of github.com/rogpeppe/go&#45;internal)</text>
 </g>
 <!-- fortio.org/dnsping&#45;&gt;fortio.org/testscript -->
@@ -518,7 +518,7 @@
 <g id="node19" class="node">
 <title>fortio.org/term</title>
 <path fill="steelblue" stroke="black" d="M1437.88,-462C1437.88,-462 1289.88,-462 1289.88,-462 1283.88,-462 1277.88,-456 1277.88,-450 1277.88,-450 1277.88,-436 1277.88,-436 1277.88,-430 1283.88,-424 1289.88,-424 1289.88,-424 1437.88,-424 1437.88,-424 1443.88,-424 1449.88,-430 1449.88,-436 1449.88,-436 1449.88,-450 1449.88,-450 1449.88,-456 1443.88,-462 1437.88,-462"/>
-<text text-anchor="middle" x="1363.88" y="-444.7" font-family="Helvetica,sans-Serif" font-size="14.00">fortio.org/term</text>
+<text text-anchor="middle" x="1363.88" y="-444.7" font-family="Helvetica,sans-Serif" font-size="14.00">fortio/term</text>
 <text text-anchor="middle" x="1363.88" y="-429.7" font-family="Helvetica,sans-Serif" font-size="14.00">(fork of golang.org/x/term)</text>
 </g>
 <!-- fortio.org/terminal -->
