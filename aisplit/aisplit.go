@@ -1,5 +1,8 @@
 // Allows to copy paste content of single "multi-file" as written by gemini and write each file
 // to a separate file. The files are separated by a line starting with "// File: "
+
+// This is also mostly AI written and such pretty bad code.
+
 package main
 
 import (
@@ -9,6 +12,7 @@ import (
 	"os/exec" // Import os/exec
 	"strings"
 
+	"fortio.org/cli"
 	"fortio.org/log" // Use fortio/log for consistency
 )
 
@@ -19,8 +23,10 @@ const (
 
 // runGoFumpt executes "gofumpt -w" on the specified file
 func runGoFumpt(filename string) {
-	if filename == "" {
-		return // Safety check
+	// only on .go files:
+	if !strings.HasSuffix(filename, ".go") {
+		log.LogVf("  Skipping gofumpt on %s (not a .go file)", filename)
+		return
 	}
 	log.Infof("  Running gofumpt on %s...", filename)
 	cmd := exec.Command("gofumpt", "-w", filename)
@@ -36,9 +42,9 @@ func runGoFumpt(filename string) {
 }
 
 func main() {
+	cli.Main()
 	// --- Use Stdin as Input ---
-	fmt.Fprintln(os.Stderr, "Reading from stdin... Paste combined code and signal EOF (Ctrl+D).")
-	fmt.Fprintln(os.Stderr, "Processing...")
+	log.Printf("Reading from stdin... Paste combined code and signal EOF (Ctrl+D).")
 
 	// --- Scan and Split ---
 	scanner := bufio.NewScanner(os.Stdin)
@@ -59,9 +65,9 @@ func main() {
 			// Close previous file if open
 			if currentFile != nil {
 				filenameToFormat = currentFilename // Remember filename for gofumpt
-				fmt.Fprintf(os.Stderr, "  Finished %s (%d lines written)\n", currentFilename, linesInCurrentFile)
+				log.Infof("  Finished %s (%d lines written)", currentFilename, linesInCurrentFile)
 				if err := currentFile.Close(); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to close previous file '%s': %v\n", currentFilename, err)
+					log.Warnf("Failed to close previous file '%s': %v", currentFilename, err)
 					filenameToFormat = "" // Don't format if close failed? Or format anyway? Let's format.
 				}
 				currentFile = nil
@@ -72,16 +78,16 @@ func main() {
 			// Extract new filename
 			filename := strings.TrimSpace(strings.TrimPrefix(line, fileMarkerPrefix))
 			if filename == "" {
-				fmt.Fprintf(os.Stderr, "Warning: Found marker with empty filename on line %d: %s\n", lineNum, line)
+				log.Warnf("Warning: Found marker with empty filename on line %d: %s", lineNum, line)
 				writing = false // Stop writing until a valid marker is found
 				continue
 			}
 
 			// Create/Truncate new output file
-			fmt.Fprintf(os.Stderr, "  Extracting %s...\n", filename)
+			log.Infof("  Extracting %s...", filename)
 			outFile, err := os.Create(filename)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Failed to create output file '%s': %v\n", filename, err)
+				log.Errf("Failed to create output file '%s': %v", filename, err)
 				writing = false // Stop writing if file creation fails
 				currentFile = nil
 				currentFilename = ""
@@ -106,7 +112,7 @@ func main() {
 		if writing && currentFile != nil {
 			_, err := fmt.Fprintln(currentFile, line)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Failed to write line %d to file '%s': %v\n", lineNum, currentFilename, err)
+				log.Errf("Failed to write line %d to file '%s': %v", lineNum, currentFilename, err)
 				writing = false
 				currentFile.Close()
 				currentFile = nil
@@ -122,9 +128,9 @@ func main() {
 	// Close the last opened file
 	if currentFile != nil {
 		filenameToFormat = currentFilename // Remember filename
-		fmt.Fprintf(os.Stderr, "  Finished %s (%d lines written) (at EOF)\n", currentFilename, linesInCurrentFile)
+		log.Infof("  Finished %s (%d lines written) (at EOF)", currentFilename, linesInCurrentFile)
 		if err := currentFile.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to close last file '%s': %v\n", currentFilename, err)
+			log.Warnf("Failed to close last file '%s': %v", currentFilename, err)
 			filenameToFormat = "" // Don't format if close failed? Let's format.
 		}
 	}
@@ -133,9 +139,7 @@ func main() {
 
 	// Check for scanner errors
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed reading input from stdin: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Failed reading input from stdin: %v", err)
 	}
-
-	fmt.Fprintln(os.Stderr, "Done.")
+	log.Infof("Done.")
 }

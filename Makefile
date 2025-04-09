@@ -16,4 +16,7 @@ import:
 	go run ./aisplit
 	git diff -w
 
+export:
+	go run ./aijoin *.go
+
 .PHONY: regen mine golang import
