@@ -23,7 +23,7 @@ type CachedContentResponse struct {
 	FileContent *github.RepositoryContent
 }
 
-// New: Structure for caching full repository details
+// Structure for caching full repository details
 type CachedRepoResponse struct {
 	Repo *github.Repository
 }
@@ -65,6 +65,7 @@ func getCacheKey(cacheDir string, parts ...string) string {
 
 // readCache attempts to read and unmarshal data from a cache file
 func readCache(key string, target interface{}, useCache bool) (bool, error) {
+	log.Debugf("Reading cache for key: %s for %T and useCache = %t", key, target, useCache)
 	if !useCache {
 		return false, nil
 	}

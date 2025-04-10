@@ -292,9 +292,11 @@ If you want to modify the code or contribute:
 
 ## About this
 
-All the code in 0.1.0 is generated through many iterations/prompts of Gemini 2.5 pro
+All the code in 0.1.0 was generated through many iterations/prompts of Gemini 2.5 pro
 
 The driving and idea and need and "QA"ing is my own (ldemailly)
 
 While I was lucky at first, it became increasingly frustrating to use AI for that, fixing bugs and (re)introducing others and explaining what is wrong etc...
 Will try manual fix or localized or some other AI than Gemini as I just wasted another 2h going in a loop with respect to forks
+
+And other AI failed too so... This is now in the process of being manually updated/redone.
