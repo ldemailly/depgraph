@@ -12,27 +12,29 @@ type ModuleInfo struct {
 	Fetched            bool              // Indicates if the go.mod was successfully fetched and parsed
 }
 
+// These are the structures we should have had.
+
 type Node struct {
-	path       string
-	module     *ModuleInfo // nil for (ext) dependencies
-	partOfLoop bool
-	setId      int // 0 for first owner/org, 1 for second, etc. - determines the color (with the fork attribute of the module)
+	Path       string
+	Module     *ModuleInfo // nil for (ext) dependencies
+	PartOfLoop bool
+	SetID      int // 0 for first owner/org, 1 for second, etc. - determines the color (with the fork attribute of the module)
 }
 
 type Edge struct {
-	from *Node // never nil.
-	to   *Node
+	From *Node // never nil.
+	To   *Node
 	// The version of the dependency
-	version string
+	Version string
 }
 
 type Graph struct {
-	nodes  map[string]*Node // path -> Node
-	edges  []Edge           // Edges
-	cycles []Cycle          // Cycles as they are discovered
+	Nodes  map[string]*Node // path -> Node
+	Edges  []Edge           // Edges
+	Cycles []Cycle          // Cycles as they are discovered
 }
 
 type Cycle struct {
 	// Nodes in the cycle
-	nodes []*Node
+	Nodes []*Node
 }

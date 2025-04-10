@@ -27,11 +27,7 @@ digraph dependencies {
   "fortio.org/terminal/fps" [label="fortio.org/terminal/fps", fillcolor="lightblue"];
   "fortio.org/testscript" [label="fortio/testscript\n(fork of github.com/rogpeppe/go-internal)", fillcolor="steelblue"];
   "fortio.org/version" [label="fortio.org/version", fillcolor="lightblue"];
-  "github.com/Shopify/go-lua" [label="github.com/Shopify/go-lua", fillcolor="lightgrey"];
-  "github.com/benbjohnson/clock" [label="github.com/benbjohnson/clock", fillcolor="lightgrey"];
-  "github.com/bwmarrin/discordgo" [label="ldemailly/discordgo\n(fork of github.com/bwmarrin/discordgo)", fillcolor="coral"];
-  "github.com/d5/tengo/v2" [label="github.com/d5/tengo/v2", fillcolor="lightgrey"];
-  "github.com/dop251/goja" [label="github.com/dop251/goja", fillcolor="lightgrey"];
+  "github.com/bwmarrin/discordgo" [label="github.com/bwmarrin/discordgo", fillcolor="lightgrey"];
   "github.com/fortio/delta" [label="github.com/fortio/delta", fillcolor="lightblue"];
   "github.com/fortio/h2cli" [label="github.com/fortio/h2cli", fillcolor="lightblue"];
   "github.com/fortio/h2demo" [label="github.com/fortio/h2demo", fillcolor="lightblue"];
@@ -43,7 +39,6 @@ digraph dependencies {
   "github.com/google/go-cmp" [label="github.com/google/go-cmp", fillcolor="lightgrey"];
   "github.com/google/go-github/v62" [label="github.com/google/go-github/v62", fillcolor="lightgrey"];
   "github.com/google/uuid" [label="github.com/google/uuid", fillcolor="lightgrey"];
-  "github.com/gorilla/websocket" [label="github.com/gorilla/websocket", fillcolor="lightgrey"];
   "github.com/kortschak/goroutine" [label="github.com/kortschak/goroutine", fillcolor="lightgrey"];
   "github.com/ldemailly/advent24" [label="github.com/ldemailly/advent24", fillcolor="lightsalmon"];
   "github.com/ldemailly/depgraph" [label="github.com/ldemailly/depgraph", fillcolor="lightsalmon"];
@@ -54,17 +49,11 @@ digraph dependencies {
   "github.com/ldemailly/quartiles" [label="github.com/ldemailly/quartiles", fillcolor="lightsalmon"];
   "github.com/ldemailly/rate" [label="github.com/ldemailly/rate", fillcolor="lightsalmon"];
   "github.com/loov/hrtime" [label="github.com/loov/hrtime", fillcolor="lightgrey"];
-  "github.com/miekg/dns" [label="ldemailly/dns\n(fork of github.com/miekg/dns)", fillcolor="coral"];
-  "github.com/open2b/scriggo" [label="github.com/open2b/scriggo", fillcolor="lightgrey"];
+  "github.com/miekg/dns" [label="github.com/miekg/dns", fillcolor="lightgrey"];
   "github.com/prometheus/client_golang" [label="github.com/prometheus/client_golang", fillcolor="lightgrey"];
   "github.com/rivo/uniseg" [label="github.com/rivo/uniseg", fillcolor="lightgrey"];
-  "github.com/robotn/gohook" [label="ldemailly/gohook\n(fork of github.com/robotn/gohook)", fillcolor="coral"];
+  "github.com/robotn/gohook" [label="github.com/robotn/gohook", fillcolor="lightgrey"];
   "github.com/spf13/pflag" [label="github.com/spf13/pflag", fillcolor="lightgrey"];
-  "github.com/stretchr/testify" [label="github.com/stretchr/testify", fillcolor="lightgrey"];
-  "github.com/traefik/yaegi" [label="github.com/traefik/yaegi", fillcolor="lightgrey"];
-  "github.com/vcaesar/keycode" [label="github.com/vcaesar/keycode", fillcolor="lightgrey"];
-  "github.com/vcaesar/tt" [label="github.com/vcaesar/tt", fillcolor="lightgrey"];
-  "github.com/yuin/gopher-lua" [label="github.com/yuin/gopher-lua", fillcolor="lightgrey"];
   "gitlab.com/ldemailly/go-flag-bug" [label="gitlab.com/ldemailly/go-flag-bug", fillcolor="lightsalmon"];
   "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace" [label="go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace", fillcolor="lightgrey"];
   "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp" [label="go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp", fillcolor="lightgrey"];
@@ -74,10 +63,8 @@ digraph dependencies {
   "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc" [label="go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc", fillcolor="lightgrey"];
   "go.opentelemetry.io/otel/sdk" [label="go.opentelemetry.io/otel/sdk", fillcolor="lightgrey"];
   "go.opentelemetry.io/otel/trace" [label="go.opentelemetry.io/otel/trace", fillcolor="lightgrey"];
-  "go.uber.org/goleak" [label="go.uber.org/goleak", fillcolor="lightgrey"];
-  "go.uber.org/multierr" [label="go.uber.org/multierr", fillcolor="lightgrey"];
   "go.uber.org/ratelimit" [label="go.uber.org/ratelimit", fillcolor="lightgrey"];
-  "go.uber.org/zap" [label="ldemailly/zap\n(fork of go.uber.org/zap)", fillcolor="coral"];
+  "go.uber.org/zap" [label="go.uber.org/zap", fillcolor="lightgrey"];
   "go4.org" [label="go4.org", fillcolor="lightgrey"];
   "golang.org/x/crypto" [label="golang.org/x/crypto", fillcolor="lightgrey"];
   "golang.org/x/crypto/x509roots/fallback" [label="golang.org/x/crypto/x509roots/fallback", fillcolor="lightgrey"];
@@ -86,18 +73,15 @@ digraph dependencies {
   "golang.org/x/mod" [label="golang.org/x/mod", fillcolor="lightgrey"];
   "golang.org/x/net" [label="golang.org/x/net", fillcolor="lightgrey"];
   "golang.org/x/oauth2" [label="golang.org/x/oauth2", fillcolor="lightgrey"];
-  "golang.org/x/sync" [label="golang.org/x/sync", fillcolor="lightgrey"];
   "golang.org/x/sys" [label="golang.org/x/sys", fillcolor="lightgrey"];
-  "golang.org/x/term" [label="ldemailly/term\n(fork of golang.org/x/term)", fillcolor="coral"];
+  "golang.org/x/term" [label="golang.org/x/term", fillcolor="lightgrey"];
   "golang.org/x/time" [label="golang.org/x/time", fillcolor="lightgrey"];
   "golang.org/x/tools" [label="golang.org/x/tools", fillcolor="lightgrey"];
   "google.golang.org/grpc" [label="google.golang.org/grpc", fillcolor="lightgrey"];
-  "gopkg.in/yaml.v3" [label="gopkg.in/yaml.v3", fillcolor="lightgrey"];
   "grol.io/grol" [label="grol.io/grol", fillcolor="lightgreen"];
   "grol.io/grol-discord-bot" [label="grol.io/grol-discord-bot", fillcolor="lightgreen"];
   "k8s.io/apimachinery" [label="k8s.io/apimachinery", fillcolor="lightgrey"];
   "k8s.io/client-go" [label="k8s.io/client-go", fillcolor="lightgrey"];
-  "scriggo-bench" [label="grol-io/scriggo-bench\n(fork of scriggo-bench)", fillcolor="darkseagreen"];
   "tailscale.com" [label="tailscale.com", fillcolor="lightgrey"];
 
   // Edges (Dependencies)
@@ -199,8 +183,6 @@ digraph dependencies {
   "fortio.org/terminal/fps" -> "github.com/loov/hrtime" [label="v1.0.3"];
   "fortio.org/testscript" -> "golang.org/x/sys" [label="v0.0.0-20220722155257-8c9f86f7a55f"];
   "fortio.org/testscript" -> "golang.org/x/tools" [label="v0.1.12"];
-  "github.com/bwmarrin/discordgo" -> "github.com/gorilla/websocket" [label="v1.4.2"];
-  "github.com/bwmarrin/discordgo" -> "golang.org/x/crypto" [label="v0.0.0-20210421170649-83a5a9bb288b"];
   "github.com/fortio/delta" -> "fortio.org/cli" [label="v1.10.0"];
   "github.com/fortio/delta" -> "fortio.org/log" [label="v1.17.2"];
   "github.com/fortio/delta" -> "fortio.org/sets" [label="v1.2.0"];
@@ -247,18 +229,6 @@ digraph dependencies {
   "github.com/ldemailly/rate" -> "fortio.org/cli" [label="v1.2.0"];
   "github.com/ldemailly/rate" -> "fortio.org/log" [label="v1.6.0"];
   "github.com/ldemailly/rate" -> "go.uber.org/ratelimit" [label="v0.3.0"];
-  "github.com/miekg/dns" -> "golang.org/x/crypto" [label="v0.0.0-20191011191535-87dc89f01550"];
-  "github.com/miekg/dns" -> "golang.org/x/net" [label="v0.0.0-20190923162816-aa69164e4478"];
-  "github.com/miekg/dns" -> "golang.org/x/sync" [label="v0.0.0-20190423024810-112230192c58"];
-  "github.com/miekg/dns" -> "golang.org/x/sys" [label="v0.0.0-20190924154521-2837fb4f24fe"];
-  "github.com/robotn/gohook" -> "github.com/vcaesar/keycode" [label="v0.10.0"];
-  "github.com/robotn/gohook" -> "github.com/vcaesar/tt" [label="v0.20.0"];
-  "go.uber.org/zap" -> "github.com/benbjohnson/clock" [label="v1.3.0"];
-  "go.uber.org/zap" -> "github.com/stretchr/testify" [label="v1.8.1"];
-  "go.uber.org/zap" -> "go.uber.org/goleak" [label="v1.2.0"];
-  "go.uber.org/zap" -> "go.uber.org/multierr" [label="v1.10.0"];
-  "go.uber.org/zap" -> "gopkg.in/yaml.v3" [label="v3.0.1"];
-  "golang.org/x/term" -> "golang.org/x/sys" [label="v0.31.0"];
   "grol.io/grol" -> "fortio.org/cli" [label="v1.10.0"];
   "grol.io/grol" -> "fortio.org/log" [label="v1.17.2"];
   "grol.io/grol" -> "fortio.org/safecast" [label="v1.0.0"];
@@ -275,11 +245,4 @@ digraph dependencies {
   "grol.io/grol-discord-bot" -> "fortio.org/version" [label="v1.0.4"];
   "grol.io/grol-discord-bot" -> "github.com/bwmarrin/discordgo" [label="v0.28.1"];
   "grol.io/grol-discord-bot" -> "grol.io/grol" [label="v0.80.3"];
-  "scriggo-bench" -> "github.com/Shopify/go-lua" [label="v0.0.0-20210302141115-d8ac5566562d"];
-  "scriggo-bench" -> "github.com/d5/tengo/v2" [label="v2.8.0"];
-  "scriggo-bench" -> "github.com/dop251/goja" [label="v0.0.0-20210904102640-6338b3246846"];
-  "scriggo-bench" -> "github.com/open2b/scriggo" [label="v0.49.0"];
-  "scriggo-bench" -> "github.com/traefik/yaegi" [label="v0.9.23"];
-  "scriggo-bench" -> "github.com/yuin/gopher-lua" [label="v0.0.0-20210529063254-f4c35e4016d9"];
-  "scriggo-bench" -> "grol.io/grol" [label="v0.26.0"];
 }

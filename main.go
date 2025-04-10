@@ -152,6 +152,7 @@ func main() {
 					continue
 				}
 				originalModulePath := ""
+				// TODO: horrible AI spahghetti code, + surgery to fix #2
 				// --- Fetch Parent Info for Forks ---
 				var parentRepoInfo *github.Repository // To store parent info if fetched
 				if isFork {

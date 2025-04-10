@@ -27,7 +27,6 @@ digraph dependencies {
   "fortio.org/terminal/fps" [label="fortio.org/terminal/fps", fillcolor="lightblue"];
   "fortio.org/testscript" [label="fortio/testscript\n(fork of github.com/rogpeppe/go-internal)", fillcolor="steelblue"];
   "fortio.org/version" [label="fortio.org/version", fillcolor="lightblue"];
-  "github.com/bwmarrin/discordgo" [label="ldemailly/discordgo\n(fork of github.com/bwmarrin/discordgo)", fillcolor="coral"];
   "github.com/fortio/delta" [label="github.com/fortio/delta", fillcolor="lightblue"];
   "github.com/fortio/h2cli" [label="github.com/fortio/h2cli", fillcolor="lightblue"];
   "github.com/fortio/h2demo" [label="github.com/fortio/h2demo", fillcolor="lightblue"];
@@ -42,14 +41,9 @@ digraph dependencies {
   "github.com/ldemailly/panic-linter" [label="github.com/ldemailly/panic-linter", fillcolor="lightsalmon"];
   "github.com/ldemailly/quartiles" [label="github.com/ldemailly/quartiles", fillcolor="lightsalmon"];
   "github.com/ldemailly/rate" [label="github.com/ldemailly/rate", fillcolor="lightsalmon"];
-  "github.com/miekg/dns" [label="ldemailly/dns\n(fork of github.com/miekg/dns)", fillcolor="coral"];
-  "github.com/robotn/gohook" [label="ldemailly/gohook\n(fork of github.com/robotn/gohook)", fillcolor="coral"];
   "gitlab.com/ldemailly/go-flag-bug" [label="gitlab.com/ldemailly/go-flag-bug", fillcolor="lightsalmon"];
-  "go.uber.org/zap" [label="ldemailly/zap\n(fork of go.uber.org/zap)", fillcolor="coral"];
-  "golang.org/x/term" [label="ldemailly/term\n(fork of golang.org/x/term)", fillcolor="coral"];
   "grol.io/grol" [label="grol.io/grol", fillcolor="lightgreen"];
   "grol.io/grol-discord-bot" [label="grol.io/grol-discord-bot", fillcolor="lightgreen"];
-  "scriggo-bench" [label="grol-io/scriggo-bench\n(fork of scriggo-bench)", fillcolor="darkseagreen"];
 
   // Edges (Dependencies)
   "fortio.org/cli" -> "fortio.org/log" [label="v1.17.2"];
@@ -62,7 +56,6 @@ digraph dependencies {
   "fortio.org/dnsping" -> "fortio.org/log" [label="v1.17.2"];
   "fortio.org/dnsping" -> "fortio.org/safecast" [label="v1.0.0"];
   "fortio.org/dnsping" -> "fortio.org/testscript" [label="v0.3.2"];
-  "fortio.org/dnsping" -> "github.com/miekg/dns" [label="v1.1.65"];
   "fortio.org/fortio" -> "fortio.org/assert" [label="v1.2.1"];
   "fortio.org/fortio" -> "fortio.org/cli" [label="v1.10.0"];
   "fortio.org/fortio" -> "fortio.org/dflag" [label="v1.8.1"];
@@ -124,7 +117,6 @@ digraph dependencies {
   "github.com/fortio/logger-bench" -> "fortio.org/log" [label="v1.17.2"];
   "github.com/fortio/logger-bench" -> "fortio.org/scli" [label="v1.16.1"];
   "github.com/fortio/logger-bench" -> "fortio.org/sets" [label="v1.3.0"];
-  "github.com/fortio/logger-bench" -> "go.uber.org/zap" [label="v1.27.0"];
   "github.com/fortio/semtest/v2" -> "fortio.org/fortio" [label="v1.35.0"];
   "github.com/fortio/workflows" -> "fortio.org/log" [label="v1.17.2"];
   "github.com/fortio/workflows" -> "fortio.org/scli" [label="v1.16.1"];
@@ -135,9 +127,7 @@ digraph dependencies {
   "github.com/ldemailly/go-scratch" -> "fortio.org/fortio" [label="v1.60.3"];
   "github.com/ldemailly/go-scratch" -> "fortio.org/log" [label="v1.11.0"];
   "github.com/ldemailly/go-scratch" -> "fortio.org/scli" [label="v1.12.0"];
-  "github.com/ldemailly/go-scratch" -> "golang.org/x/term" [label="v0.18.0"];
   "github.com/ldemailly/gohook_sample" -> "fortio.org/fortio" [label="v1.21.1"];
-  "github.com/ldemailly/gohook_sample" -> "github.com/robotn/gohook" [label="v0.31.3"];
   "github.com/ldemailly/lll-fixer" -> "fortio.org/cli" [label="v1.9.0"];
   "github.com/ldemailly/lll-fixer" -> "fortio.org/log" [label="v1.16.0"];
   "github.com/ldemailly/panic-linter" -> "fortio.org/sets" [label="v1.2.0"];
@@ -158,7 +148,5 @@ digraph dependencies {
   "grol.io/grol-discord-bot" -> "fortio.org/log" [label="v1.17.2"];
   "grol.io/grol-discord-bot" -> "fortio.org/scli" [label="v1.16.1"];
   "grol.io/grol-discord-bot" -> "fortio.org/version" [label="v1.0.4"];
-  "grol.io/grol-discord-bot" -> "github.com/bwmarrin/discordgo" [label="v0.28.1"];
   "grol.io/grol-discord-bot" -> "grol.io/grol" [label="v0.80.3"];
-  "scriggo-bench" -> "grol.io/grol" [label="v0.26.0"];
 }
