@@ -2,3 +2,5 @@
 depgraph
 aisplit
 .golangci.yml
+dependencies_golang.png
+dependencies_with_ext.svg
