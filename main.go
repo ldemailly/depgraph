@@ -10,6 +10,7 @@ import (
 	"fortio.org/cli" // Import fortio cli
 	"fortio.org/log" // Import fortio log
 	"github.com/google/go-github/v62/github"
+	"github.com/ldemailly/depgraph/graph"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/oauth2"
 )
@@ -75,8 +76,8 @@ func main() {
 	client := NewClientWrapper(ghClient, cacheDir, useCache)
 	// --- End GitHub Client Setup ---
 
-	// Store module info: map[modulePath]ModuleInfo
-	modulesFoundInOwners := make(map[string]*ModuleInfo)
+	// Store module info: map[modulePath]graph.ModuleInfo
+	modulesFoundInOwners := make(map[string]*graph.ModuleInfo)
 	// Keep track of all unique module paths encountered (sources and dependencies)
 	allModulePaths := make(map[string]bool)
 
@@ -106,6 +107,7 @@ func main() {
 			}
 		}
 		currentPage := 1
+		// TODO: a bunch of these should be in github.go not here
 		for { // Pagination loop
 			if repos == nil {
 				log.Warnf("    No repositories found or error occurred for page %d for %s", currentPage, owner)
@@ -190,7 +192,7 @@ func main() {
 				}
 				// --- End Fetch Parent Info ---
 
-				info := &ModuleInfo{Path: modulePath, RepoPath: repoPath, IsFork: isFork, OriginalModulePath: originalModulePath, Owner: owner, OwnerIdx: i, Deps: make(map[string]string), Fetched: true}
+				info := &graph.ModuleInfo{Path: modulePath, RepoPath: repoPath, IsFork: isFork, OriginalModulePath: originalModulePath, Owner: owner, OwnerIdx: i, Deps: make(map[string]string), Fetched: true}
 				modulesFoundInOwners[modulePath] = info
 				for _, req := range modFile.Require {
 					if !req.Indirect {

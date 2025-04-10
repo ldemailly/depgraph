@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+
 	// "fmt" // Removed unused import
 	"net/http"
 	"strconv"
@@ -10,21 +11,6 @@ import (
 	"fortio.org/log" // Using fortio log
 	"github.com/google/go-github/v62/github"
 )
-
-// --- Structs ---
-// ModuleInfo stores details about modules found in the scanned owners (orgs or users)
-type ModuleInfo struct {
-	Path               string // Module path from go.mod
-	RepoPath           string // Repository path (owner/repo) where it was found
-	IsFork             bool
-	OriginalModulePath string            // Module path from the parent repo's go.mod (if fork)
-	Owner              string            // Owner (org or user) where the module definition was found
-	OwnerIdx           int               // Index of the owner in the input list (for coloring)
-	Deps               map[string]string // path -> version
-	Fetched            bool              // Indicates if the go.mod was successfully fetched and parsed
-}
-
-// --- End Structs ---
 
 // --- Utility Functions ---
 // isNotFoundError checks if an error is a GitHub API 404 Not Found error
@@ -162,7 +148,7 @@ func (cw *ClientWrapper) getCachedGetContents(ctx context.Context, owner, repo, 
 	return fileContent, dirContent, resp, nil
 }
 
-// New: Cached wrapper for getting full repo details
+// Cached wrapper for getting full repo details
 func (cw *ClientWrapper) getCachedGetRepo(ctx context.Context, owner, repo string) (*github.Repository, *github.Response, error) {
 	keyParts := []string{"GetRepo", owner, repo}
 	cacheKey := getCacheKey(cw.cacheDir, keyParts...)

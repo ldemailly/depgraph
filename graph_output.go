@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"fortio.org/log" // Using fortio log
+	"github.com/ldemailly/depgraph/graph"
 )
 
 // --- Color Palettes ---
@@ -23,7 +24,7 @@ var (
 // buildReverseGraphAndDetectCycles builds the reversed graph, runs Kahn's algorithm
 // to detect cycles, logs warnings, and returns the set of nodes likely involved in cycles.
 // Returns: map[nodePath]bool indicating nodes in cycles, and the initial inDegree map.
-func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) (map[string]bool, map[string]int, map[string][]string) {
+func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*graph.ModuleInfo, nodesToGraph map[string]bool) (map[string]bool, map[string]int, map[string][]string) {
 	reverseAdj := make(map[string][]string)
 	inDegree := make(map[string]int)
 	nodesInSort := []string{}
@@ -117,7 +118,7 @@ func buildReverseGraphAndDetectCycles(modulesFoundInOwners map[string]*ModuleInf
 
 // isNodeDependedOn returns true if the given node is depended on by any other node
 // *within* the set of nodes currently considered to be in cycles.
-func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, currentNodesInCycles map[string]bool) bool {
+func isNodeDependedOn(node string, modulesFoundInOwners map[string]*graph.ModuleInfo, currentNodesInCycles map[string]bool) bool {
 	for _, info := range modulesFoundInOwners {
 		// Only check dependencies *of* nodes that are *also* in the current cycle set.
 		if !currentNodesInCycles[info.Path] {
@@ -137,7 +138,7 @@ func isNodeDependedOn(node string, modulesFoundInOwners map[string]*ModuleInfo, 
 // by removing nodes that might have a non-zero in-degree initially due to dependencies
 // from *outside* the cycle, but aren't actually part of a loop structure themselves.
 // It iteratively removes such nodes until no more can be removed.
-func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) map[string]bool {
+func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners map[string]*graph.ModuleInfo, nodesToGraph map[string]bool) map[string]bool {
 	if len(nodesInCycles) == 0 {
 		return nodesInCycles // No cycles detected, nothing to filter
 	}
@@ -173,7 +174,7 @@ func filterOutUnusedNodes(nodesInCycles map[string]bool, modulesFoundInOwners ma
 }
 
 // determineNodesToGraph calculates the set of nodes to include in the final graph
-func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModulePaths map[string]bool, noExt bool) map[string]bool {
+func determineNodesToGraph(modulesFoundInOwners map[string]*graph.ModuleInfo, allModulePaths map[string]bool, noExt bool) map[string]bool {
 	nodesToGraph := make(map[string]bool)
 	referencedModules := make(map[string]bool)       // Modules depended on by included nodes (non-forks or included forks)
 	forksDependingOnNonFork := make(map[string]bool) // Forks (by module path) that depend on an included non-fork
@@ -249,7 +250,7 @@ func determineNodesToGraph(modulesFoundInOwners map[string]*ModuleInfo, allModul
 }
 
 // generateDotOutput generates the DOT graph representation and prints it to stdout
-func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
+func generateDotOutput(modulesFoundInOwners map[string]*graph.ModuleInfo, nodesToGraph map[string]bool, noExt bool, left2Right bool) { // Added left2Right flag
 	// --- Detect Cycles to Highlight Nodes ---
 	nodesInCyclesSet, _, _ := buildReverseGraphAndDetectCycles(modulesFoundInOwners, nodesToGraph)
 	// Refine the cycle set before using it for highlighting
@@ -382,7 +383,7 @@ func generateDotOutput(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph
 // --- Topological Sort Logic ---
 
 // Helper function to format node output for topo sort (SINGLE LINE format)
-func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleInfo) string {
+func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*graph.ModuleInfo) string {
 	// Default output is module path
 	outputStr := nodePath
 	// Look up info to customize output for forks
@@ -407,7 +408,7 @@ func formatNodeForTopo(nodePath string, modulesFoundInOwners map[string]*ModuleI
 }
 
 // printLevel prints a single level of the topological sort, handling A<->B pairs.
-func printLevel(levelNodes []string, levelIndex int, indent string, modulesFoundInOwners map[string]*ModuleInfo, bidirPairs map[string]string, isBidirNode map[string]bool, processedForOutput map[string]bool, levelName string) {
+func printLevel(levelNodes []string, levelIndex int, indent string, modulesFoundInOwners map[string]*graph.ModuleInfo, bidirPairs map[string]string, isBidirNode map[string]bool, processedForOutput map[string]bool, levelName string) {
 	if len(levelNodes) == 0 {
 		return // Don't print empty levels
 	}
@@ -449,7 +450,7 @@ func printLevel(levelNodes []string, levelIndex int, indent string, modulesFound
 
 // performTopologicalSortAndPrint performs Kahn's algorithm on the REVERSE graph
 // printing levels starting with leaves, grouping cycles into their own level.
-func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*ModuleInfo, nodesToGraph map[string]bool) {
+func performTopologicalSortAndPrint(modulesFoundInOwners map[string]*graph.ModuleInfo, nodesToGraph map[string]bool) {
 	// --- Initial Setup ---
 	log.Infof("Starting topological sort (leaves first)...")
 
