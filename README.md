@@ -115,13 +115,8 @@ Level 0:
   - fortio/term (fortio.org/term fork of golang.org/x/term)
   - fortio/testscript (fortio.org/testscript fork of github.com/rogpeppe/go-internal)
   - fortio.org/version
-  - ldemailly/discordgo (fork of github.com/bwmarrin/discordgo)
   - github.com/fortio/h2demo
-  - ldemailly/dns (fork of github.com/miekg/dns)
-  - ldemailly/gohook (fork of github.com/robotn/gohook)
   - gitlab.com/ldemailly/go-flag-bug
-  - ldemailly/zap (fork of go.uber.org/zap)
-  - ldemailly/term (fork of golang.org/x/term)
 Level 1:
   - fortio.org/log
   - fortio.org/sets
@@ -148,7 +143,6 @@ Level 4:
 Level 5:
   - fortio.org/fortio
   - grol.io/grol-discord-bot
-  - grol-io/scriggo-bench (fork of scriggo-bench)
 Level 6:
   - fortio.org/dnsping
   - fortio.org/fortiotel

@@ -1,0 +1,45 @@
+Topological Sort Levels (Leaves First):
+Level 0:
+  - github.com/golang/geo
+  - github.com/golang/glog
+  - github.com/golang/protobuf
+  - golang.org/dl
+  - golang.org/x/arch
+  - golang.org/x/oauth2
+  - golang.org/x/review
+  - golang.org/x/sync
+  - golang.org/x/sys
+  - golang.org/x/time
+  - golang.org/x/tour
+  - golang.org/x/vgo
+  - golang.org/x/xerrors
+Level 1:
+  - github.com/golang/groupcache
+  - golang.org/x/benchmarks
+  - golang.org/x/debug
+  - golang.org/x/term
+Level 2 (Cycles):
+  - golang.org/x/crypto <-> golang.org/x/net
+  - golang.org/x/mod <-> golang.org/x/tools
+  - golang.org/x/telemetry
+  - golang.org/x/text
+Level 3:
+  - github.com/golang/vscode-go
+  - golang.org/x/example
+  - golang.org/x/exp
+  - golang.org/x/image
+  - golang.org/x/oscar
+  - golang.org/x/pkgsite
+  - golang.org/x/vuln
+  - google.golang.org/appengine
+Level 4:
+  - golang.org/x/mobile
+  - golang.org/x/perf
+  - golang.org/x/pkgsite-metrics
+  - golang.org/x/vulndb
+  - google.golang.org/open2opaque
+Level 5:
+  - golang.org/x/build
+Level 6:
+  - golang.org/x/playground
+  - golang.org/x/website
