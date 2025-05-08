@@ -286,6 +286,10 @@ If you want to modify the code or contribute:
 
 ## About this
 
+Since/for 0.4.0 we finally got a fully functional version, obtained by ditching AI entirely and doing surgery on the spaghetti.
+
+Before that:
+
 All the code in 0.1.0 was generated through many iterations/prompts of Gemini 2.5 pro
 
 The driving and idea and need and "QA"ing is my own (ldemailly)
@@ -293,4 +297,4 @@ The driving and idea and need and "QA"ing is my own (ldemailly)
 While I was lucky at first, it became increasingly frustrating to use AI for that, fixing bugs and (re)introducing others and explaining what is wrong etc...
 Will try manual fix or localized or some other AI than Gemini as I just wasted another 2h going in a loop with respect to forks
 
-And other AI failed too so... This is now in the process of being manually updated/redone.
+And other AI failed too so... This is now in the process of being manually updated/redone. EDIT: done in 0.4.0
